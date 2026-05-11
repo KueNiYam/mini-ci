@@ -1,0 +1,22 @@
+{
+  "name": "mini-ci",
+  "version": "0.1.0",
+  "description": "Local bare repo와 Git hook으로 동작하는 초경량 self-hosted CI",
+  "type": "module",
+  "bin": {
+    "mini-ci": "./bin/mini-ci"
+  },
+  "scripts": {
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "docs"
+  ]
+}

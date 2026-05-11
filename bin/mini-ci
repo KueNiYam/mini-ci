@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PRG="$0"
+while [ -h "$PRG" ]; do
+  DIR="$(cd -P "$(dirname "$PRG")" >/dev/null 2>&1 && pwd)"
+  PRG="$(readlink "$PRG")"
+  case "$PRG" in
+    /*) ;;
+    *) PRG="$DIR/$PRG" ;;
+  esac
+done
+
+DIR="$(cd -P "$(dirname "$PRG")" >/dev/null 2>&1 && pwd)"
+exec node --experimental-strip-types "$DIR/../src/cli.ts" "$@"
