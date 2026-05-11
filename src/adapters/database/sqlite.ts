@@ -155,6 +155,28 @@ export function findLatestProject(home: string): Project | null {
   return rows[0] ? rowToProject(rows[0]) : null;
 }
 
+/** 모든 프로젝트 설정을 이름순으로 조회합니다. */
+export function findProjects(home: string): readonly Project[] {
+  const rows = queryRows(
+    home,
+    `
+    SELECT
+      id,
+      name,
+      project_path,
+      bare_repo_path,
+      branch,
+      commands_json,
+      worktree_path,
+      created_at
+    FROM projects
+    ORDER BY name ASC;
+    `,
+  );
+
+  return rows.map(rowToProject);
+}
+
 /** 새 job을 저장합니다. */
 export function insertJob(home: string, job: Job): void {
   execSql(
@@ -246,6 +268,37 @@ export function findLatestJob(home: string): (Job & Readonly<{ projectName: stri
   return rows[0] ? { ...rowToJob(rows[0]), projectName: String(rows[0].project_name) } : null;
 }
 
+/** 특정 프로젝트의 최신 job을 조회합니다. */
+export function findLatestJobForProject(
+  home: string,
+  projectId: string,
+): (Job & Readonly<{ projectName: string }>) | null {
+  const rows = queryRows(
+    home,
+    `
+    SELECT
+      jobs.id,
+      jobs.project_id,
+      jobs.commit_sha,
+      jobs.status,
+      jobs.failed_step,
+      jobs.exit_code,
+      jobs.log_path,
+      jobs.created_at,
+      jobs.started_at,
+      jobs.finished_at,
+      projects.name AS project_name
+    FROM jobs
+    JOIN projects ON projects.id = jobs.project_id
+    WHERE jobs.project_id = ${sqlText(projectId)}
+    ORDER BY jobs.created_at DESC
+    LIMIT 1;
+    `,
+  );
+
+  return rows[0] ? { ...rowToJob(rows[0]), projectName: String(rows[0].project_name) } : null;
+}
+
 /** 최근 job 실행 이력을 최신순으로 조회합니다. */
 export function findRecentJobs(home: string, limit: number = 20): readonly (Job & Readonly<{ projectName: string }>)[] {
   const rows = queryRows(
@@ -265,6 +318,38 @@ export function findRecentJobs(home: string, limit: number = 20): readonly (Job 
       projects.name AS project_name
     FROM jobs
     JOIN projects ON projects.id = jobs.project_id
+    ORDER BY jobs.created_at DESC
+    LIMIT ${Math.max(1, Math.min(100, Math.trunc(limit)))};
+    `,
+  );
+
+  return rows.map((row) => ({ ...rowToJob(row), projectName: String(row.project_name) }));
+}
+
+/** 특정 프로젝트의 최근 job 이력을 조회합니다. */
+export function findRecentJobsForProject(
+  home: string,
+  projectId: string,
+  limit: number = 20,
+): readonly (Job & Readonly<{ projectName: string }>)[] {
+  const rows = queryRows(
+    home,
+    `
+    SELECT
+      jobs.id,
+      jobs.project_id,
+      jobs.commit_sha,
+      jobs.status,
+      jobs.failed_step,
+      jobs.exit_code,
+      jobs.log_path,
+      jobs.created_at,
+      jobs.started_at,
+      jobs.finished_at,
+      projects.name AS project_name
+    FROM jobs
+    JOIN projects ON projects.id = jobs.project_id
+    WHERE jobs.project_id = ${sqlText(projectId)}
     ORDER BY jobs.created_at DESC
     LIMIT ${Math.max(1, Math.min(100, Math.trunc(limit)))};
     `,

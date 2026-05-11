@@ -1,5 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { getJob, getJobLog, getLatestJob, getRecentJobs, rerunJob } from "../../app.ts";
+import {
+  getJob,
+  getJobLog,
+  getLatestJob,
+  getLatestJobForProject,
+  getProjects,
+  getRecentJobs,
+  getRecentJobsForProject,
+  rerunJob,
+} from "../../app.ts";
 
 /** 대시보드 서버 실행에 필요한 로컬 런타임 설정입니다. */
 export type DashboardOptions = Readonly<{
@@ -39,6 +48,23 @@ async function handleRequest(home: string, request: IncomingMessage, response: S
 
   if (method === "GET" && url.pathname === "/api/jobs") {
     sendJson(response, 200, getRecentJobs(home));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/projects") {
+    sendJson(response, 200, getProjects(home));
+    return;
+  }
+
+  const projectLatestMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/latest$/);
+  if (method === "GET" && projectLatestMatch) {
+    sendJson(response, 200, getLatestJobForProject(home, decodeURIComponent(projectLatestMatch[1])));
+    return;
+  }
+
+  const projectJobsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/jobs$/);
+  if (method === "GET" && projectJobsMatch) {
+    sendJson(response, 200, getRecentJobsForProject(home, decodeURIComponent(projectJobsMatch[1])));
     return;
   }
 
@@ -181,11 +207,34 @@ function dashboardHtml(): string {
         color: #0f766e;
         font-weight: 700;
       }
+      .project-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .project-list button,
+      .history-button {
+        border: 1px solid #d9dee8;
+        background: #fbfcfe;
+        color: #1d2430;
+      }
+      .project-list button[aria-pressed="true"] {
+        border-color: #0f766e;
+        background: #e6f4f1;
+        color: #0b5f59;
+      }
+      .history-button {
+        padding: 3px 6px;
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Mini CI Dashboard</h1>
+      <section>
+        <h2>Projects</h2>
+        <div id="projects" class="project-list"></div>
+      </section>
       <section>
         <dl id="job"></dl>
         <p><button id="rerun" type="button">Rerun</button></p>
@@ -203,43 +252,99 @@ function dashboardHtml(): string {
       const logEl = document.getElementById("logs");
       const rerunEl = document.getElementById("rerun");
       const historyEl = document.getElementById("history");
+      const projectsEl = document.getElementById("projects");
       let currentJob = null;
+      let selectedProjectId = "all";
+      const projectNames = new Map();
 
       async function load() {
-        const latest = await fetch("/api/jobs/latest").then((response) => response.json());
+        await loadProjects();
+        const latest = await fetch(latestUrl()).then((response) => response.json());
         currentJob = latest;
         if (!latest) {
           jobEl.innerHTML = "<dt>상태</dt><dd>아직 job이 없습니다.</dd>";
           logEl.textContent = "";
           rerunEl.disabled = true;
+          await loadHistory();
           return;
         }
 
-        rerunEl.disabled = false;
-        jobEl.innerHTML = [
-          ["프로젝트", escapeHtml(latest.projectName)],
-          ["상태", '<span class="status">' + escapeHtml(latest.status) + "</span>"],
-          ["커밋", escapeHtml(latest.commitSha)],
-          ["실패 step", escapeHtml(latest.failedStep || "-")],
-          ["exit code", escapeHtml(latest.exitCode ?? "-")],
-          ["생성", escapeHtml(latest.createdAt)],
-        ].map(([key, value]) => "<dt>" + key + "</dt><dd>" + value + "</dd>").join("");
-
+        renderJob(latest);
         logEl.textContent = await fetch("/api/jobs/" + latest.id + "/logs").then((response) => response.text());
         await loadHistory();
       }
 
       async function loadHistory() {
-        const jobs = await fetch("/api/jobs").then((response) => response.json());
+        const jobs = await fetch(jobsUrl()).then((response) => response.json());
         historyEl.innerHTML = jobs.map((job) => {
-          return "<li><a href='/api/jobs/" + encodeURIComponent(job.id) + "'>" +
+          return "<li><button class='history-button' type='button' data-job-id='" + escapeAttribute(job.id) + "'>" +
             escapeHtml(job.projectName) + " " +
-            escapeHtml(job.commitSha.slice(0, 7)) + "</a> " +
+            escapeHtml(job.commitSha.slice(0, 7)) + "</button> " +
             escapeHtml(job.status) + " " +
             escapeHtml(job.createdAt) +
             "</li>";
         }).join("");
       }
+
+      async function loadProjects() {
+        const projects = await fetch("/api/projects").then((response) => response.json());
+        projectNames.clear();
+        projectsEl.replaceChildren(projectButton("all", "All projects"));
+        for (const project of projects) {
+          projectNames.set(project.id, project.name);
+          projectsEl.append(projectButton(project.id, project.name));
+        }
+      }
+
+      function renderJob(job) {
+        rerunEl.disabled = false;
+        jobEl.innerHTML = [
+          ["프로젝트", escapeHtml(job.projectName || projectNames.get(job.projectId) || job.projectId)],
+          ["상태", '<span class="status">' + escapeHtml(job.status) + "</span>"],
+          ["커밋", escapeHtml(job.commitSha)],
+          ["실패 step", escapeHtml(job.failedStep || "-")],
+          ["exit code", escapeHtml(job.exitCode ?? "-")],
+          ["생성", escapeHtml(job.createdAt)],
+        ].map(([key, value]) => "<dt>" + key + "</dt><dd>" + value + "</dd>").join("");
+      }
+
+      function projectButton(id, label) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.setAttribute("aria-pressed", String(selectedProjectId === id));
+        button.addEventListener("click", async () => {
+          selectedProjectId = id;
+          await load();
+        });
+        return button;
+      }
+
+      function latestUrl() {
+        if (selectedProjectId === "all") {
+          return "/api/jobs/latest";
+        }
+
+        return "/api/projects/" + encodeURIComponent(selectedProjectId) + "/latest";
+      }
+
+      function jobsUrl() {
+        if (selectedProjectId === "all") {
+          return "/api/jobs";
+        }
+
+        return "/api/projects/" + encodeURIComponent(selectedProjectId) + "/jobs";
+      }
+
+      historyEl.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-job-id]");
+        if (!button) return;
+
+        const job = await fetch("/api/jobs/" + encodeURIComponent(button.dataset.jobId)).then((response) => response.json());
+        currentJob = job;
+        renderJob(job);
+        logEl.textContent = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/logs").then((response) => response.text());
+      });
 
       rerunEl.addEventListener("click", async () => {
         if (!currentJob) return;
@@ -254,6 +359,10 @@ function dashboardHtml(): string {
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value).replaceAll(String.fromCharCode(96), "&#96;");
       }
 
       load();

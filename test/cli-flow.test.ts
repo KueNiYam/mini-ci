@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { getProjects, getRecentJobsForProject } from "../src/app.ts";
+import { initializeDatabase, insertJob, saveProject } from "../src/adapters/database/sqlite.ts";
+import type { Job, Project } from "../src/domains/ci/models.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(REPO_ROOT, "bin", "mini-ci");
@@ -66,6 +69,32 @@ test("local bare repo push가 hook을 통해 CI job을 실행한다", async () =
   assert.deepEqual(jobs, [{ status: "success", exit_code: 0 }]);
 });
 
+test("여러 프로젝트의 job을 프로젝트별로 조회한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mini-ci-projects-"));
+  const home = join(root, "home");
+  const projectA = createProject("project-a", "app-a", root);
+  const projectB = createProject("project-b", "app-b", root);
+
+  initializeDatabase(home);
+  saveProject(home, projectA);
+  saveProject(home, projectB);
+  insertJob(home, createJob("job-a", projectA.id, "commit-a", join(root, "a.log")));
+  insertJob(home, createJob("job-b", projectB.id, "commit-b", join(root, "b.log")));
+
+  assert.deepEqual(
+    getProjects(home).map((project) => project.name),
+    ["app-a", "app-b"],
+  );
+  assert.deepEqual(
+    getRecentJobsForProject(home, projectA.id).map((job) => job.commitSha),
+    ["commit-a"],
+  );
+  assert.deepEqual(
+    getRecentJobsForProject(home, projectB.id).map((job) => job.commitSha),
+    ["commit-b"],
+  );
+});
+
 /** 외부 명령을 실행하고 실패하면 테스트 실패로 처리합니다. */
 function run(
   command: string,
@@ -99,4 +128,34 @@ function querySql(home: string, sql: string): readonly Record<string, unknown>[]
 
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout) as readonly Record<string, unknown>[];
+}
+
+/** 테스트용 프로젝트 모델을 만듭니다. */
+function createProject(id: string, name: string, root: string): Project {
+  return {
+    id,
+    name,
+    projectPath: join(root, name),
+    bareRepoPath: join(root, `${name}.git`),
+    branch: "main",
+    commands: ["npm test"],
+    worktreePath: join(root, "worktrees", name),
+    createdAt: `2026-05-11T00:00:0${id.endsWith("a") ? "1" : "2"}.000Z`,
+  };
+}
+
+/** 테스트용 job 모델을 만듭니다. */
+function createJob(id: string, projectId: string, commitSha: string, logPath: string): Job {
+  return {
+    id,
+    projectId,
+    commitSha,
+    status: "success",
+    failedStep: null,
+    exitCode: 0,
+    logPath,
+    createdAt: id.endsWith("a") ? "2026-05-11T00:00:01.000Z" : "2026-05-11T00:00:02.000Z",
+    startedAt: null,
+    finishedAt: null,
+  };
 }

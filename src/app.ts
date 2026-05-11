@@ -14,9 +14,12 @@ import {
   ensureMiniCiHome,
   findJobById,
   findLatestJob,
+  findLatestJobForProject,
   findLatestProject,
   findProjectById,
+  findProjects,
   findRecentJobs,
+  findRecentJobsForProject,
   initializeDatabase,
   insertJob,
   resolvePaths,
@@ -200,10 +203,31 @@ export function getLatestJob(home: string): ReturnType<typeof findLatestJob> {
   return findLatestJob(home);
 }
 
+/** 대시보드 API에서 사용할 프로젝트 목록을 조회합니다. */
+export function getProjects(home: string): ReturnType<typeof findProjects> {
+  initializeDatabase(home);
+  return findProjects(home);
+}
+
+/** 대시보드 API에서 사용할 프로젝트별 최신 job을 조회합니다. */
+export function getLatestJobForProject(home: string, projectId: string): ReturnType<typeof findLatestJobForProject> {
+  initializeDatabase(home);
+  return findLatestJobForProject(home, projectId);
+}
+
 /** 대시보드 API에서 사용할 최근 job 실행 이력을 조회합니다. */
 export function getRecentJobs(home: string): ReturnType<typeof findRecentJobs> {
   initializeDatabase(home);
   return findRecentJobs(home);
+}
+
+/** 대시보드 API에서 사용할 프로젝트별 job 이력을 조회합니다. */
+export function getRecentJobsForProject(
+  home: string,
+  projectId: string,
+): ReturnType<typeof findRecentJobsForProject> {
+  initializeDatabase(home);
+  return findRecentJobsForProject(home, projectId);
 }
 
 /** job 상세 정보를 조회합니다. */
