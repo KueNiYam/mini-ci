@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini CI 핵심 설계</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --paper: #ffffff;
+        --text: #1d2430;
+        --muted: #647084;
+        --line: #d9dee8;
+        --accent: #0f766e;
+        --accent-soft: #e6f4f1;
+        --code-bg: #101828;
+        --code-text: #eef2f7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.65;
+      }
+
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 48px 24px 72px;
+      }
+
+      article {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 44px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 2.25rem;
+      }
+
+      h2 {
+        margin: 44px 0 14px;
+        padding-top: 28px;
+        border-top: 1px solid var(--line);
+        font-size: 1.45rem;
+      }
+
+      h3 {
+        margin: 28px 0 10px;
+        font-size: 1.1rem;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      ul,
+      ol {
+        margin: 8px 0 18px;
+        padding-left: 24px;
+      }
+
+      li + li {
+        margin-top: 4px;
+      }
+
+      code {
+        padding: 0.12rem 0.32rem;
+        border-radius: 4px;
+        background: var(--accent-soft);
+        color: #0b5f59;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      pre {
+        margin: 10px 0 18px;
+        overflow-x: auto;
+        border-radius: 8px;
+        background: var(--code-bg);
+        color: var(--code-text);
+        padding: 16px;
+        font-size: 0.92rem;
+        line-height: 1.55;
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        font-size: inherit;
+      }
+
+      .lead {
+        margin-bottom: 24px;
+        color: var(--muted);
+        font-size: 1.04rem;
+      }
+
+      .summary {
+        margin: 24px 0 0;
+        border-left: 4px solid var(--accent);
+        background: var(--accent-soft);
+        padding: 16px 18px;
+      }
+
+      .label {
+        margin: 18px 0 8px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+        margin: 14px 0 22px;
+        padding: 0;
+        list-style: none;
+      }
+
+      .flow li {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #fbfcfe;
+      }
+
+      .flow li::before {
+        content: attr(data-step);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        margin-right: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: white;
+        font-size: 0.8rem;
+        font-weight: 700;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin: 14px 0 20px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        background: #fbfcfe;
+      }
+
+      .card h3 {
+        margin-top: 0;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          padding: 20px 12px 44px;
+        }
+
+        article {
+          padding: 28px 20px;
+        }
+
+        h1 {
+          font-size: 1.8rem;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>Mini CI 핵심 설계</h1>
+        <p class="lead">
+          Mini CI는 기존 local bare repo, Git hook, 전용 worktree, shell command만으로 동작하는
+          초경량 self-hosted CI다.
+        </p>
+
+        <section class="summary">
+          <p>개발 프로젝트와 Mini CI는 같은 컴퓨터에 있다고 가정한다.</p>
+        </section>
+
+        <section>
+          <h2>설치 방법</h2>
+
+          <h3>1. Mini CI 설치</h3>
+          <p class="label">Input</p>
+          <pre><code>npm install -g mini-ci
+mini-ci init
+mini-ci start</code></pre>
+
+          <p class="label">Output</p>
+          <pre><code>~/.mini-ci/
+  mini-ci.sqlite
+  logs/
+  worktrees/
+
+Dashboard: http://localhost:4177</code></pre>
+
+          <p class="label">동작</p>
+          <ul>
+            <li>Mini CI 실행 환경을 만든다.</li>
+            <li>SQLite DB, 로그 디렉터리, CI worktree 디렉터리를 준비한다.</li>
+            <li>개발 프로젝트에는 아직 아무것도 설치하지 않는다.</li>
+          </ul>
+
+          <h3>2. 기존 bare repo 연결</h3>
+          <p class="label">Input</p>
+          <pre><code>cd /path/to/my-app
+
+mini-ci project attach . \
+  --bare-repo /srv/git/my-app.git \
+  --branch main \
+  --cmd "pnpm install" \
+  --cmd "pnpm test" \
+  --cmd "pnpm build"</code></pre>
+
+          <p class="label">Output</p>
+          <pre><code>project registered: my-app
+using bare repo: /srv/git/my-app.git
+post-receive hook installed
+CI worktree ready: ~/.mini-ci/worktrees/my-app</code></pre>
+
+          <p class="label">동작</p>
+          <ul>
+            <li>Mini CI가 기존 local bare repo 경로를 저장한다.</li>
+            <li>해당 경로가 실제 bare repo인지 검증한다.</li>
+            <li>기존 local bare repo에 <code>post-receive</code> hook을 설치한다.</li>
+            <li>CI 실행용 전용 worktree를 만든다.</li>
+            <li>개발 프로젝트의 remote 설정은 건드리지 않는다.</li>
+          </ul>
+
+          <h3>3. CI 실행</h3>
+          <p class="label">Input</p>
+          <pre><code>git push origin main</code></pre>
+
+          <p class="label">Output</p>
+          <pre><code>job created
+commit: abc123
+status: queued</code></pre>
+
+          <p class="label">동작</p>
+          <ul>
+            <li>기존 bare repo의 <code>refs/heads/main</code>이 업데이트된다.</li>
+            <li><code>post-receive</code> hook이 Mini CI에 job을 등록한다.</li>
+            <li>Mini CI가 전용 worktree에서 해당 commit을 checkout한다.</li>
+            <li>등록된 command를 순서대로 실행한다.</li>
+            <li>결과와 로그를 대시보드에 보여준다.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>설치 플로우</h2>
+          <ol class="flow">
+            <li data-step="1">npm install -g mini-ci</li>
+            <li data-step="2">mini-ci init</li>
+            <li data-step="3">mini-ci start</li>
+            <li data-step="4">mini-ci project attach . --bare-repo ...</li>
+            <li data-step="5">기존 bare repo 검증</li>
+            <li data-step="6">post-receive hook 설치</li>
+            <li data-step="7">CI worktree 준비</li>
+            <li data-step="8">git push origin main</li>
+            <li data-step="9">Job 생성 및 실행</li>
+          </ol>
+        </section>
+
+        <section>
+          <h2>기능</h2>
+
+          <h3>1. 기존 local bare repo 연결</h3>
+          <p class="label">Input</p>
+          <pre><code>mini-ci project attach . --bare-repo /srv/git/my-app.git</code></pre>
+          <p class="label">Output</p>
+          <pre><code>using bare repo: /srv/git/my-app.git</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>이미 사용 중인 local bare repo를 Mini CI 프로젝트에 연결한다.</li>
+            <li>bare repo가 아니면 등록을 실패시킨다.</li>
+            <li>개발 프로젝트의 기존 remote 설정은 변경하지 않는다.</li>
+          </ul>
+
+          <h3>2. Git hook 기반 트리거</h3>
+          <p class="label">Input</p>
+          <pre><code>oldCommit newCommit refs/heads/main</code></pre>
+          <p class="label">Output</p>
+          <pre><code>job created for newCommit</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>기존 local bare repo의 <code>post-receive</code> hook으로 push를 감지한다.</li>
+            <li>설정된 브랜치가 아니면 무시한다.</li>
+            <li>설정된 브랜치이면 job을 만든다.</li>
+          </ul>
+
+          <h3>3. 전용 worktree 실행</h3>
+          <p class="label">Input</p>
+          <pre><code>commit: abc123</code></pre>
+          <p class="label">Output</p>
+          <pre><code>~/.mini-ci/worktrees/&lt;project&gt;</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>Mini CI가 관리하는 worktree에서만 checkout한다.</li>
+            <li>개발자가 작업하는 worktree는 건드리지 않는다.</li>
+            <li>job마다 실행 대상 commit을 명확히 남긴다.</li>
+          </ul>
+
+          <h3>4. Command 실행</h3>
+          <p class="label">Input</p>
+          <pre><code>commands:
+  - pnpm install
+  - pnpm test
+  - pnpm build</code></pre>
+          <p class="label">Output</p>
+          <pre><code>status: success | failed
+failedStep: test
+exitCode: 1</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>command를 등록 순서대로 실행한다.</li>
+            <li>하나라도 실패하면 이후 command는 실행하지 않는다.</li>
+            <li>실패한 step과 exit code를 저장한다.</li>
+          </ul>
+
+          <h3>5. 로그 저장</h3>
+          <p class="label">Input</p>
+          <pre><code>stdout
+stderr
+exitCode</code></pre>
+          <p class="label">Output</p>
+          <pre><code>~/.mini-ci/logs/&lt;project&gt;/&lt;job&gt;.log</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>command 출력 전체를 로그 파일로 저장한다.</li>
+            <li>dashboard에서 로그를 볼 수 있다.</li>
+            <li>실행 중인 job은 로그 tail을 볼 수 있다.</li>
+          </ul>
+
+          <h3>6. 대시보드</h3>
+          <p class="label">Input</p>
+          <pre><code>GET /api/jobs/latest
+GET /api/jobs/:id
+GET /api/jobs/:id/logs</code></pre>
+          <p class="label">Output</p>
+          <pre><code>최신 상태
+실행 이력
+실패 step
+exit code
+전체 로그
+rerun 버튼</code></pre>
+          <p class="label">기능</p>
+          <ul>
+            <li>최신 job 상태를 보여준다.</li>
+            <li>job 실행 이력을 보여준다.</li>
+            <li>실패 원인과 로그를 보여준다.</li>
+            <li>같은 commit으로 재실행할 수 있다.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>실행 플로우</h2>
+          <ol class="flow">
+            <li data-step="1">git push origin main</li>
+            <li data-step="2">기존 local bare repo 업데이트</li>
+            <li data-step="3">post-receive hook 실행</li>
+            <li data-step="4">refs/heads/main이면 Job 생성, 아니면 무시</li>
+            <li data-step="5">전용 worktree checkout</li>
+            <li data-step="6">command를 순서대로 실행</li>
+            <li data-step="7">실패 시 실패 저장 후 중단, 성공 시 다음 command 실행</li>
+            <li data-step="8">최종 결과를 대시보드에 표시</li>
+          </ol>
+        </section>
+
+        <section>
+          <h2><code>main</code>과 <code>origin/main</code></h2>
+          <p>사용자는 보통 <code>main</code>만 입력하면 된다.</p>
+          <ul>
+            <li><code>main</code>: 개발 worktree의 로컬 브랜치</li>
+            <li><code>origin/main</code>: fetch로 가져온 remote tracking branch</li>
+            <li><code>refs/heads/main</code>: bare repo 안의 실제 main ref</li>
+          </ul>
+
+          <p>
+            Mini CI는 hook 기반이므로 <code>origin/main</code>이 아니라 기존 local bare repo의
+            <code>refs/heads/main</code> 업데이트를 본다.
+          </p>
+
+          <pre><code>git push origin main
+-&gt; 기존 local bare repo의 refs/heads/main 업데이트
+-&gt; post-receive hook 실행
+-&gt; Mini CI job 생성</code></pre>
+        </section>
+
+        <section>
+          <h2>MVP에서 하지 않을 것</h2>
+          <div class="grid">
+            <div class="card">
+              <h3>Git/실행 범위</h3>
+              <ul>
+                <li>기존 <code>origin</code> remote 변경</li>
+                <li>local bare repo 자동 생성</li>
+                <li>개발 프로젝트에 Mini CI용 remote 자동 추가</li>
+                <li>GitHub Actions 호환</li>
+                <li>복잡한 YAML pipeline</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>운영/확장 범위</h3>
+              <ul>
+                <li>polling 기본 지원</li>
+                <li>webhook 기본 지원</li>
+                <li>PR별 CI</li>
+                <li>여러 프로젝트 동시 지원</li>
+                <li>자동 배포</li>
+                <li>알림 연동</li>
+                <li>artifact 업로드</li>
+                <li>복잡한 권한 관리</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Codex 전달용 요약</h2>
+          <pre><code>Mini CI라는 오픈소스 TypeScript 프로젝트를 만든다.
+
+Mini CI는 같은 컴퓨터 안의 개발 프로젝트와 기존 local bare repo에 붙는 초경량 self-hosted CI다.
+핵심 설치 방식은 mini-ci project attach . --bare-repo &lt;path&gt; 이다.
+
+attach는 기존 local bare repo 경로를 받아 bare repo 여부를 검증하고, 해당 bare repo에 post-receive hook을 설치한다.
+개발 프로젝트의 기존 remote 설정은 건드리지 않는다.
+
+사용자는 평소처럼 git push origin main 으로 CI를 실행한다.
+Mini CI는 기존 local bare repo의 refs/heads/main 업데이트를 감지하고, Mini CI 전용 worktree에서 해당 commit을 checkout한 뒤, 등록된 shell command 배열을 순서대로 실행한다.
+
+결과는 SQLite와 로그 파일에 저장하고, dashboard에서 최신 상태, 실행 이력, 실패 step, exit code, 로그, rerun을 제공한다.
+
+문서는 설치 방법과 기능을 중심으로 작성하고, 각 기능은 input -&gt; output -&gt; 동작 순서로 설명한다.</code></pre>
+        </section>
+      </article>
+    </main>
+  </body>
+</html>
