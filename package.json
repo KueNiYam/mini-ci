@@ -1,7 +1,7 @@
 {
   "name": "mini-ci",
   "version": "0.1.0",
-  "description": "Local bare repo와 Git hook으로 동작하는 초경량 self-hosted CI",
+  "description": "배포된 디렉터리에서 shell command를 실행하는 초경량 self-hosted CI",
   "type": "module",
   "bin": {
     "mini-ci": "./bin/mini-ci"

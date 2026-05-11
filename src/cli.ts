@@ -1,12 +1,9 @@
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
 import {
-  attachProject,
-  handlePostReceive,
+  addProject,
   initMiniCi,
   resolveMiniCiHome,
-  runJobForProject,
+  runProjectByName,
+  setTriggerToken,
 } from "./app.ts";
 import { startDashboard } from "./adapters/http/dashboard.ts";
 
@@ -42,7 +39,6 @@ async function routeCommand(argv: readonly string[]): Promise<void> {
     console.log(`~/.mini-ci/`);
     console.log(`  ${basenameOnly(result.dbPath)}`);
     console.log(`  logs/`);
-    console.log(`  worktrees/`);
     console.log("");
     console.log("Dashboard: http://localhost:4177");
     return;
@@ -51,64 +47,61 @@ async function routeCommand(argv: readonly string[]): Promise<void> {
   if (command === "start") {
     const options = parseOptions(rest);
     const port = Number(options.values.port ?? "4177");
+    const host = options.values.host ?? "127.0.0.1";
     initMiniCi(home);
-    startDashboard({ home, port });
+    startDashboard({
+      home,
+      host,
+      port,
+      adminToken: process.env.MINI_CI_ADMIN_TOKEN,
+    });
     return;
   }
 
-  if (command === "project" && rest[0] === "attach") {
+  if (command === "project" && rest[0] === "add") {
     const options = parseOptions(rest.slice(1));
-    const projectPath = options.positionals[0] ?? ".";
-    const bareRepoPath = options.values["bare-repo"];
-    if (!bareRepoPath) {
-      throw new Error("--bare-repo 값이 필요합니다.");
+    const name = options.positionals[0];
+    const projectPath = options.values.path;
+    if (!name) {
+      throw new Error("프로젝트 이름이 필요합니다.");
     }
 
-    const project = attachProject(home, {
+    if (!projectPath) {
+      throw new Error("--path 값이 필요합니다.");
+    }
+
+    const project = addProject(home, {
+      name,
       projectPath,
-      bareRepoPath,
-      branch: options.values.branch ?? "main",
       commands: options.lists.cmd ?? [],
-      miniCiBin: process.env.MINI_CI_BIN ?? resolve(dirname(fileURLToPath(import.meta.url)), "../bin/mini-ci"),
     });
 
     console.log(`project registered: ${project.name}`);
-    console.log(`using bare repo: ${project.bareRepoPath}`);
-    console.log("post-receive hook installed");
-    console.log(`CI worktree ready: ${project.worktreePath}`);
+    console.log(`path: ${project.projectPath}`);
     return;
   }
 
-  if (command === "hook" && rest[0] === "post-receive") {
-    const options = parseOptions(rest.slice(1));
-    const projectId = options.values["project-id"];
-    if (!projectId) {
-      throw new Error("--project-id 값이 필요합니다.");
-    }
-
-    const jobs = handlePostReceive(home, projectId, readStdin());
-    for (const job of jobs) {
-      console.log("job created");
-      console.log(`commit: ${job.commitSha}`);
-      console.log(`status: ${job.status}`);
-    }
-    return;
-  }
-
-  if (command === "run-job") {
+  if (command === "run") {
     const options = parseOptions(rest);
-    const commitSha = options.values.commit;
-    if (!commitSha) {
-      throw new Error("--commit 값이 필요합니다.");
+    const name = options.values.project ?? options.positionals[0];
+    if (!name) {
+      throw new Error("--project 값 또는 프로젝트 이름이 필요합니다.");
     }
 
-    const job = runJobForProject(home, {
-      projectId: options.values["project-id"],
-      commitSha,
+    const job = runProjectByName(home, {
+      name,
+      ref: options.values.ref,
     });
     console.log("job created");
-    console.log(`commit: ${job.commitSha}`);
+    console.log(`project: ${name}`);
+    console.log(`ref: ${job.ref}`);
     console.log(`status: ${job.status}`);
+    return;
+  }
+
+  if (command === "token" && rest[0] === "create") {
+    const token = setTriggerToken(home);
+    console.log(token);
     return;
   }
 
@@ -145,11 +138,6 @@ function parseOptions(argv: readonly string[]): ParsedOptions {
   return { values, lists, positionals };
 }
 
-/** 표준 입력 전체를 문자열로 읽습니다. */
-function readStdin(): string {
-  return readFileSync(0, "utf8");
-}
-
 /** 경로 출력에서 파일명만 표시하기 위한 작은 변환 함수입니다. */
 function basenameOnly(path: string): string {
   return path.split("/").at(-1) ?? path;
@@ -161,9 +149,10 @@ function printHelp(): void {
 
 Usage:
   mini-ci init
-  mini-ci start [--port 4177]
-  mini-ci project attach <path> --bare-repo <path> [--branch main] --cmd <command>
-  mini-ci run-job --commit <sha> [--project-id <id>]
+  mini-ci start [--host 127.0.0.1] [--port 4177]
+  mini-ci project add <name> --path <directory> --cmd <command>
+  mini-ci run --project <name> [--ref <ref>]
+  mini-ci token create
 `);
 }
 

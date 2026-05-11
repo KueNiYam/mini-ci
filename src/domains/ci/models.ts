@@ -10,18 +10,15 @@ export type Project = Readonly<{
   id: string;
   name: string;
   projectPath: string;
-  bareRepoPath: string;
-  branch: string;
   commands: readonly string[];
-  worktreePath: string;
   createdAt: string;
 }>;
 
-/** 특정 commit에 대해 실행된 CI 작업의 저장 모델입니다. */
+/** 특정 배포 ref에 대해 실행된 CI 작업의 저장 모델입니다. */
 export type Job = Readonly<{
   id: string;
   projectId: string;
-  commitSha: string;
+  ref: string;
   status: JobStatus;
   failedStep: string | null;
   exitCode: number | null;
@@ -38,16 +35,14 @@ export type JobStepResult = Readonly<{
   exitCode: number | null;
 }>;
 
-/** Git post-receive hook이 표준 입력으로 전달하는 ref 업데이트입니다. */
-export type PostReceiveUpdate = Readonly<{
-  oldCommit: string;
-  newCommit: string;
-  ref: string;
-}>;
-
 /** 현재 시각을 저장용 ISO 문자열로 변환합니다. */
 export function nowIso(now: Date = new Date()): string {
   return now.toISOString();
+}
+
+/** 사용자가 ref를 주지 않았을 때 저장할 시간 기반 run ref를 만듭니다. */
+export function createRunRef(now: Date = new Date()): string {
+  return `manual-${now.toISOString().replaceAll(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}`;
 }
 
 /** 새 도메인 식별자를 UUIDv7 형식으로 생성합니다. */
@@ -83,25 +78,4 @@ export function formatUuidV7(timestampMs: number, random: Uint8Array): string {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
     .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
-}
-
-/** post-receive 표준 입력 라인을 구조화된 업데이트 목록으로 변환합니다. */
-export function parsePostReceiveInput(input: string): readonly PostReceiveUpdate[] {
-  return input
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const [oldCommit, newCommit, ref] = line.split(/\s+/);
-      if (!oldCommit || !newCommit || !ref) {
-        throw new Error(`post-receive 입력 형식이 올바르지 않습니다: ${line}`);
-      }
-
-      return { oldCommit, newCommit, ref };
-    });
-}
-
-/** 프로젝트 브랜치에 해당하는 Git ref 이름을 만듭니다. */
-export function branchRef(branch: string): string {
-  return `refs/heads/${branch}`;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { branchRef, formatUuidV7, parsePostReceiveInput } from "../src/domains/ci/models.ts";
+import { createRunRef, formatUuidV7 } from "../src/domains/ci/models.ts";
 
 test("UUIDv7 형식으로 식별자를 만든다", () => {
   // Given:
@@ -13,12 +13,11 @@ test("UUIDv7 형식으로 식별자를 만든다", () => {
   assert.match(id[19], /[89ab]/);
 });
 
-test("post-receive 입력을 업데이트 목록으로 파싱한다", () => {
+test("시간 기반 run ref를 만든다", () => {
   // Given:
   // When:
   // Then:
-  const updates = parsePostReceiveInput("old new refs/heads/main\n");
+  const ref = createRunRef(new Date("2026-05-11T12:34:56.789Z"));
 
-  assert.deepEqual(updates, [{ oldCommit: "old", newCommit: "new", ref: "refs/heads/main" }]);
-  assert.equal(branchRef("main"), "refs/heads/main");
+  assert.equal(ref, "manual-20260511T123456Z");
 });
