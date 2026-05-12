@@ -654,6 +654,97 @@ function dashboardHtml(projectRoot: string): string {
       .run-form input {
         flex: 1 1 190px;
       }
+      .pending-action {
+        border-color: #b7d8d3;
+        background: #f7fcfb;
+      }
+      .pending-action[hidden] {
+        display: none;
+      }
+      .pending-action p {
+        margin: 8px 0 0;
+        color: #647084;
+      }
+      .pending-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .pending-grid h3 {
+        margin: 0 0 8px;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 850;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .pending-list,
+      .pending-command-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+      }
+      .pending-list li,
+      .pending-command-list li {
+        margin-top: 0;
+      }
+      .pending-list code,
+      .pending-command-list code {
+        display: inline-block;
+        max-width: 100%;
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #334155;
+        padding: 2px 6px;
+        overflow-wrap: anywhere;
+      }
+      .pending-command-list code {
+        background: #e6f4f1;
+        color: #0b5f59;
+      }
+      .pending-meta {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 8px 12px;
+        margin: 0;
+      }
+      .pending-meta dt {
+        color: #647084;
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .pending-meta dd {
+        margin: 0;
+      }
+      .pending-warning {
+        margin-top: 14px;
+        border-radius: 6px;
+        background: #fef3c7;
+        color: #92400e;
+        padding: 10px 12px;
+        font-weight: 750;
+      }
+      .pending-warning[hidden] {
+        display: none;
+      }
+      .pending-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      button.secondary {
+        border: 1px solid #cbd5e1;
+        background: white;
+        color: #1d2430;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
       .history-project + .history-project {
         margin-top: 24px;
       }
@@ -743,6 +834,9 @@ function dashboardHtml(projectRoot: string): string {
         .details-grid {
           grid-template-columns: 1fr;
         }
+        .pending-grid {
+          grid-template-columns: 1fr;
+        }
         .project-header {
           align-items: flex-start;
           flex-direction: column;
@@ -796,6 +890,26 @@ function dashboardHtml(projectRoot: string): string {
           </form>
         </section>
       </div>
+      <section id="pending-action" class="pending-action" hidden>
+        <h2 id="pending-title">Confirm run</h2>
+        <p id="pending-summary"></p>
+        <div class="pending-grid">
+          <div>
+            <h3>Execution paths</h3>
+            <ul id="pending-paths" class="pending-list"></ul>
+          </div>
+          <div>
+            <h3>Commands</h3>
+            <ul id="pending-commands" class="pending-command-list"></ul>
+          </div>
+        </div>
+        <dl id="pending-meta" class="pending-meta"></dl>
+        <p id="pending-warning" class="pending-warning" hidden></p>
+        <div class="pending-actions">
+          <button id="confirm-run" type="button">Confirm run</button>
+          <button id="cancel-run" class="secondary" type="button">Cancel</button>
+        </div>
+      </section>
       <section>
         <h2>Logs</h2>
         <pre id="logs">loading...</pre>
@@ -810,11 +924,22 @@ function dashboardHtml(projectRoot: string): string {
       const runFormEl = document.getElementById("run-form");
       const runWorktreePathEl = document.getElementById("run-worktree-path");
       const runDateEl = document.getElementById("run-date");
+      const pendingActionEl = document.getElementById("pending-action");
+      const pendingTitleEl = document.getElementById("pending-title");
+      const pendingSummaryEl = document.getElementById("pending-summary");
+      const pendingPathsEl = document.getElementById("pending-paths");
+      const pendingCommandsEl = document.getElementById("pending-commands");
+      const pendingMetaEl = document.getElementById("pending-meta");
+      const pendingWarningEl = document.getElementById("pending-warning");
+      const confirmRunEl = document.getElementById("confirm-run");
+      const cancelRunEl = document.getElementById("cancel-run");
       const projectRootPath = ${JSON.stringify(projectRoot)};
       const projectRootLabel = ${JSON.stringify(projectRootLabel)};
       let currentJob = null;
       let selectedJobId = null;
       let selectedProjectName = "all";
+      let projectConfigs = [];
+      let pendingAction = null;
 
       async function load(options = {}) {
         await loadProjects();
@@ -940,8 +1065,9 @@ function dashboardHtml(projectRoot: string): string {
 
       async function loadProjects() {
         const projects = await fetch("/api/projects").then((response) => response.json());
+        projectConfigs = Array.isArray(projects) ? projects : [];
         projectsEl.replaceChildren(projectButton("all", "All projects"));
-        for (const project of projects) {
+        for (const project of projectConfigs) {
           projectsEl.append(projectButton(project.name, project.name));
         }
       }
@@ -968,6 +1094,7 @@ function dashboardHtml(projectRoot: string): string {
         button.addEventListener("click", async () => {
           selectedProjectName = name;
           selectedJobId = null;
+          hidePendingAction();
           await load();
         });
         return button;
@@ -995,21 +1122,26 @@ function dashboardHtml(projectRoot: string): string {
 
         const job = await loadJobById(button.dataset.jobId);
         if (job) {
+          hidePendingAction();
           await selectJob(job);
         }
       });
 
       rerunEl.addEventListener("click", async () => {
         if (!currentJob) return;
-        const response = await fetch("/api/jobs/" + currentJob.id + "/rerun", {
-          method: "POST",
-        });
-        if (!response.ok) {
-          alert(await response.text());
+        const project = projectConfigByName(currentJob.projectName || currentJob.projectId);
+        if (!project) {
+          alert("Project settings are not loaded yet.");
           return;
         }
-        selectedJobId = null;
-        await load();
+
+        showPendingAction({
+          kind: "rerun",
+          project,
+          job: currentJob,
+          worktreePath: currentJob.worktreePath,
+          runDate: currentJob.runDate,
+        });
       });
 
       runFormEl.addEventListener("submit", async (event) => {
@@ -1019,26 +1151,146 @@ function dashboardHtml(projectRoot: string): string {
           return;
         }
 
-        const response = await fetch("/api/projects/" + encodeURIComponent(selectedProjectName) + "/runs", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            worktreePath: runWorktreePathEl.value.trim() || undefined,
-            runDate: runDateEl.value.trim() || undefined,
-          }),
-        });
-        if (!response.ok) {
-          alert(await response.text());
+        const project = projectConfigByName(selectedProjectName);
+        if (!project) {
+          alert("Project settings are not loaded yet.");
           return;
         }
 
-        runWorktreePathEl.value = "";
-        runDateEl.value = "";
+        showPendingAction({
+          kind: "manual",
+          project,
+          worktreePath: runWorktreePathEl.value.trim(),
+          runDate: runDateEl.value.trim(),
+        });
+      });
+
+      confirmRunEl.addEventListener("click", async () => {
+        if (!pendingAction) return;
+
+        confirmRunEl.disabled = true;
+        const response = pendingAction.kind === "rerun"
+          ? await fetch("/api/jobs/" + encodeURIComponent(pendingAction.job.id) + "/rerun", { method: "POST" })
+          : await fetch("/api/projects/" + encodeURIComponent(pendingAction.project.name) + "/runs", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                worktreePath: pendingAction.worktreePath || undefined,
+                runDate: pendingAction.runDate || undefined,
+              }),
+            });
+
+        if (!response.ok) {
+          alert(await response.text());
+          confirmRunEl.disabled = false;
+          return;
+        }
+
+        if (pendingAction.kind === "manual") {
+          runWorktreePathEl.value = "";
+          runDateEl.value = "";
+        }
+
+        hidePendingAction();
         selectedJobId = null;
         await load();
       });
+
+      cancelRunEl.addEventListener("click", hidePendingAction);
+
+      function showPendingAction(action) {
+        pendingAction = action;
+        const preview = runPreview(action);
+        const projectName = action.project.name;
+        pendingTitleEl.textContent = action.kind === "rerun" ? "Confirm rerun" : "Confirm manual run";
+        pendingSummaryEl.textContent = action.kind === "rerun"
+          ? "Rerun " + projectName + " with the same worktree and run date."
+          : "Start " + projectName + " after confirming the execution target.";
+        pendingPathsEl.innerHTML = preview.paths.map((path) => (
+          "<li><code>" + escapeHtml(displayProjectPath(path)) + "</code></li>"
+        )).join("");
+        pendingCommandsEl.innerHTML = action.project.commands.map((command) => (
+          "<li><code>" + escapeHtml(command) + "</code></li>"
+        )).join("");
+        pendingMetaEl.innerHTML = [
+          ["Project", escapeHtml(projectName)],
+          ["Worktree", escapeHtml(preview.worktreeLabel)],
+          ["Run date", escapeHtml(action.runDate || "auto")],
+        ].map(([key, value]) => "<dt>" + key + "</dt><dd>" + value + "</dd>").join("");
+
+        pendingWarningEl.hidden = !preview.warning;
+        pendingWarningEl.textContent = preview.warning || "";
+        confirmRunEl.disabled = Boolean(preview.warning);
+        pendingActionEl.hidden = false;
+      }
+
+      function hidePendingAction() {
+        pendingAction = null;
+        pendingActionEl.hidden = true;
+        confirmRunEl.disabled = false;
+      }
+
+      function runPreview(action) {
+        if (action.kind === "rerun") {
+          return {
+            paths: action.worktreePath === "all" ? action.project.projectPaths : [action.worktreePath],
+            warning: "",
+            worktreeLabel: action.worktreePath === "all" ? "all registered worktrees" : displayProjectPath(action.worktreePath),
+          };
+        }
+
+        const requestedPath = action.worktreePath;
+        if (requestedPath) {
+          const registeredPath = registeredProjectPath(action.project, requestedPath);
+          if (!registeredPath) {
+            return {
+              paths: [requestedPath],
+              warning: "This worktree path is not registered for " + action.project.name + ".",
+              worktreeLabel: requestedPath,
+            };
+          }
+
+          return {
+            paths: [registeredPath],
+            warning: "",
+            worktreeLabel: displayProjectPath(registeredPath),
+          };
+        }
+
+        if (action.project.projectPaths.length === 1) {
+          return {
+            paths: action.project.projectPaths,
+            warning: "",
+            worktreeLabel: displayProjectPath(action.project.projectPaths[0]),
+          };
+        }
+
+        return {
+          paths: action.project.projectPaths,
+          warning: "",
+          worktreeLabel: "all registered worktrees",
+        };
+      }
+
+      function registeredProjectPath(project, requestedPath) {
+        const normalizedRequest = normalizeProjectPath(requestedPath);
+        return project.projectPaths.find((path) => normalizeProjectPath(path) === normalizedRequest) || null;
+      }
+
+      function normalizeProjectPath(path) {
+        const value = String(path);
+        if (value.startsWith(projectRootPath + "/")) {
+          return value.slice(projectRootPath.length + 1);
+        }
+
+        return value;
+      }
+
+      function projectConfigByName(name) {
+        return projectConfigs.find((project) => project.name === name) || null;
+      }
 
       function escapeHtml(value) {
         return String(value)

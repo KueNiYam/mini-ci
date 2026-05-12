@@ -30,7 +30,7 @@
 - [x] 실행 이력을 worktree와 날짜 기준으로 분리하기
 - [ ] DB schema 초기화 정책과 미사용 DB 코드 정리하기
 - [x] 대시보드에서 과거 job 선택이 자동 새로고침으로 덮이지 않게 하기
-- [ ] Run/Rerun 전에 실행 대상 경로와 command를 확인할 수 있게 하기
+- [x] Run/Rerun 전에 실행 대상 경로와 command를 확인할 수 있게 하기
 - [x] Dashboard/Admin 빈 상태와 저장 결과 안내 개선하기
 - [x] Admin 후보에서 저장 설정 자동 로드와 변경 표시하기
 - [x] Dashboard History 우선 배치와 날짜/가독성 개선하기
