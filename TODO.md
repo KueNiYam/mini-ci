@@ -8,3 +8,31 @@
 - [x] 배포 디렉터리에서 command를 순서대로 실행하기
 - [x] 대시보드에서 프로젝트, 실행 결과, 로그, rerun을 제공하기
 - [x] README와 WIKI 문서를 directory mode 기준으로 업데이트하기
+- [x] 프로젝트 등록을 Admin HTTP/UI로 단일화하기
+- [x] Admin token과 trigger token 사용성을 개선하기
+- [x] Admin 화면 레이아웃과 사용성을 다듬기
+- [x] Admin token 입력을 별도 로그인 페이지로 분리하기
+- [x] Admin/trigger token 인증 제거하고 무인증 운영으로 단순화하기
+- [x] 프로젝트 경로 기준 디렉터리와 curl 예시 추가하기
+- [x] Admin 기준 디렉터리 표시와 하위 목록 개선하기
+- [x] Admin worktree 목록을 프로젝트명과 브랜치로 그룹핑하기
+- [x] Admin 후보 목록을 Git 없이 디렉터리 기준으로 되돌리기
+- [x] Admin 등록 흐름을 프로젝트 단위 후보 선택으로 바꾸기
+- [x] 같은 프로젝트명의 여러 디렉터리를 각각 등록할 수 있게 하기
+- [x] Project 하나에 여러 디렉터리를 묶어 실행하기
+- [x] Admin 후보 스캔에서 중간 프로젝트명 segment로 디렉터리 묶기
+- [x] Admin 선택 디렉터리 textarea 제거하기
+- [x] Admin curl 예시에서 임시 command 제거하기
+- [x] Admin 프로젝트 등록 API에서 paths 자동 탐지하기
+- [x] Admin curl 예시를 클라이언트 프로세스 실행 흐름으로 바꾸기
+- [x] Admin 클라이언트 API 예시와 프로젝트 경로 가독성 개선하기
+- [x] 클라이언트 API 예시에 실행 대상 worktree 명시하기
+- [x] 실행 이력을 worktree와 날짜 기준으로 분리하기
+- [ ] DB schema 초기화 정책과 미사용 DB 코드 정리하기
+- [ ] 대시보드에서 과거 job 선택이 자동 새로고침으로 덮이지 않게 하기
+- [ ] Run/Rerun 전에 실행 대상 경로와 command를 확인할 수 있게 하기
+- [ ] Dashboard/Admin 빈 상태와 저장 결과 안내 개선하기
+- [x] Dashboard History 우선 배치와 날짜/가독성 개선하기
+- [x] Dashboard History 더미 표시, 상태 다양화, 폰트 개선하기
+- [x] Dashboard Runs 중심으로 정보 구조와 계층 정리하기
+- [x] Dashboard 컴포넌트 계층과 폰트 재정리하기

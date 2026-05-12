@@ -1,10 +1,9 @@
 import { appendFileSync, mkdirSync, realpathSync, readFileSync, statSync } from "node:fs";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import {
   createId,
-  createRunRef,
+  createRunDate,
   nowIso,
   type Job,
   type JobStepResult,
@@ -20,12 +19,10 @@ import {
   findProjects,
   findRecentJobs,
   findRecentJobsForProject,
-  findTriggerTokenHash,
   initializeDatabase,
   insertJob,
   resolvePaths,
   saveProject,
-  saveTriggerTokenHash,
   updateJobStatus,
 } from "./adapters/database/sqlite.ts";
 import { runShellCommand } from "./adapters/process/shell.ts";
@@ -37,16 +34,50 @@ export type InitResult = Readonly<{
   logsDir: string;
 }>;
 
-/** project add 명령이 도메인 설정 생성에 넘기는 검증된 입력입니다. */
+/** Admin API가 도메인 설정 생성에 넘기는 검증된 프로젝트 입력입니다. */
 export type AddProjectInput = Readonly<{
   name: string;
-  projectPath: string;
+  projectPaths: readonly string[];
+  projectRoot?: string;
   commands: readonly string[];
+}>;
+
+/** Run API가 실행 대상 worktree와 날짜를 지정할 때 사용하는 입력입니다. */
+export type RunProjectInput = Readonly<{
+  name: string;
+  worktreePath?: string;
+  projectRoot?: string;
+  runDate?: string;
+}>;
+
+/** job 저장과 로그에 남기는 실행 대상 메타데이터입니다. */
+type RunMetadata = Readonly<{
+  worktreePath: string;
+  worktreeId: string;
+  runDate: string;
+}>;
+
+/** 실제 command를 실행할 project path 목록과 저장 메타데이터입니다. */
+type RunTarget = Readonly<{
+  project: Project;
+  metadata: RunMetadata;
 }>;
 
 /** 환경변수와 기본값을 기준으로 Mini CI 홈 경로를 결정합니다. */
 export function resolveMiniCiHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.MINI_CI_HOME ? resolve(env.MINI_CI_HOME) : join(homedir(), ".mini-ci");
+}
+
+/** project directory 입력을 해석할 기준 디렉터리를 결정합니다. */
+export function resolveProjectRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MINI_CI_PROJECT_ROOT ? resolve(env.MINI_CI_PROJECT_ROOT) : join(homedir(), ".codex", "worktrees");
+}
+
+/** project root 디렉터리를 만들고 실제 경로를 반환합니다. */
+export function ensureProjectRoot(projectRoot: string = resolveProjectRoot()): string {
+  const resolved = resolve(projectRoot);
+  mkdirSync(resolved, { recursive: true });
+  return realpathSync(resolved);
 }
 
 /** Mini CI 홈, DB, 로그 디렉터리를 초기화합니다. */
@@ -69,29 +100,30 @@ export function addProject(home: string, input: AddProjectInput): Project {
     throw new Error("프로젝트 이름은 영문, 숫자, '.', '_', '-'만 사용할 수 있습니다.");
   }
 
-  const projectPath = realpathSync(resolve(input.projectPath));
-  if (!statSync(projectPath).isDirectory()) {
-    throw new Error(`directory가 아닙니다: ${projectPath}`);
+  const projectPaths = resolveProjectPaths(input.projectRoot ?? resolveProjectRoot(), input.projectPaths);
+  if (projectPaths.length === 0) {
+    throw new Error("최소 하나 이상의 directory를 입력해야 합니다.");
   }
 
   if (input.commands.length === 0) {
-    throw new Error("최소 하나 이상의 --cmd 값을 입력해야 합니다.");
+    throw new Error("최소 하나 이상의 command를 입력해야 합니다.");
   }
 
+  const existing = findProjectByName(home, input.name);
   const project: Project = {
-    id: createId(),
+    id: existing?.id ?? createId(),
     name: input.name,
-    projectPath,
+    projectPaths,
     commands: input.commands,
-    createdAt: nowIso(),
+    createdAt: existing?.createdAt ?? nowIso(),
   };
 
   saveProject(home, project);
   return project;
 }
 
-/** 프로젝트 이름과 ref 기준으로 CI job을 생성하고 모든 command를 실행합니다. */
-export function runProjectByName(home: string, input: Readonly<{ name: string; ref?: string }>): Job {
+/** 프로젝트 이름, worktree path, run date 기준으로 CI job을 생성하고 command를 실행합니다. */
+export function runProjectByName(home: string, input: RunProjectInput): Job {
   initializeDatabase(home);
 
   const project = findProjectByName(home, input.name);
@@ -99,11 +131,12 @@ export function runProjectByName(home: string, input: Readonly<{ name: string; r
     throw new Error(`프로젝트를 찾을 수 없습니다: ${input.name}`);
   }
 
-  return createAndRunJob(home, project, input.ref ?? createRunRef());
+  const target = selectRunTarget(project, input);
+  return createAndRunJob(home, target.project, target.metadata);
 }
 
-/** 프로젝트와 ref 기준으로 CI job을 생성하고 모든 command를 실행합니다. */
-export function createAndRunJob(home: string, project: Project, ref: string): Job {
+/** 프로젝트와 worktree/date 메타데이터 기준으로 CI job을 생성하고 모든 command를 실행합니다. */
+export function createAndRunJob(home: string, project: Project, metadata: RunMetadata): Job {
   const paths = resolvePaths(home);
   const projectLogDir = join(paths.logsDir, project.name);
   mkdirSync(projectLogDir, { recursive: true });
@@ -112,7 +145,9 @@ export function createAndRunJob(home: string, project: Project, ref: string): Jo
   const job: Job = {
     id: jobId,
     projectId: project.id,
-    ref,
+    worktreePath: metadata.worktreePath,
+    worktreeId: metadata.worktreeId,
+    runDate: metadata.runDate,
     status: "queued",
     failedStep: null,
     exitCode: null,
@@ -123,7 +158,10 @@ export function createAndRunJob(home: string, project: Project, ref: string): Jo
   };
 
   insertJob(home, job);
-  appendLog(job.logPath, `Mini CI job ${job.id}\nproject: ${project.name}\nref: ${ref}\npath: ${project.projectPath}\n\n`);
+  appendLog(
+    job.logPath,
+    `Mini CI job ${job.id}\nproject: ${project.name}\nworktree id: ${metadata.worktreeId}\nworktree path: ${metadata.worktreePath}\nrun date: ${metadata.runDate}\npaths:\n${project.projectPaths.map((path) => `- ${path}`).join("\n")}\n\n`,
+  );
   updateJobStatus(home, job.id, {
     status: "running",
     failedStep: null,
@@ -147,7 +185,7 @@ export function createAndRunJob(home: string, project: Project, ref: string): Jo
   return saved;
 }
 
-/** 같은 ref로 기존 job을 재실행합니다. */
+/** 같은 worktree와 run date로 기존 job을 재실행합니다. */
 export function rerunJob(home: string, jobId: string): Job {
   initializeDatabase(home);
 
@@ -161,7 +199,15 @@ export function rerunJob(home: string, jobId: string): Job {
     throw new Error(`프로젝트를 찾을 수 없습니다: ${job.projectId}`);
   }
 
-  return createAndRunJob(home, project, job.ref);
+  const projectForRun: Project = job.worktreePath === "all"
+    ? project
+    : { ...project, projectPaths: [job.worktreePath] };
+
+  return createAndRunJob(home, projectForRun, {
+    worktreePath: job.worktreePath,
+    worktreeId: job.worktreeId,
+    runDate: job.runDate,
+  });
 }
 
 /** 대시보드 API에서 사용할 최신 job을 조회합니다. */
@@ -217,41 +263,24 @@ export function getJobLog(home: string, jobId: string): string | null {
   return readFileSync(job.logPath, "utf8");
 }
 
-/** 새 trigger token을 저장하고 생성 직후 한 번만 보여줄 원문을 반환합니다. */
-export function setTriggerToken(home: string, token: string = createSecretToken()): string {
-  initializeDatabase(home);
-  saveTriggerTokenHash(home, hashToken(token), nowIso());
-  return token;
-}
-
-/** trigger token이 설정되어 있는지 확인합니다. */
-export function isTriggerTokenConfigured(home: string): boolean {
-  initializeDatabase(home);
-  return findTriggerTokenHash(home) !== null;
-}
-
-/** 요청 token이 저장된 trigger token과 같은지 확인합니다. */
-export function verifyTriggerToken(home: string, token: string): boolean {
-  initializeDatabase(home);
-  const expectedHash = findTriggerTokenHash(home);
-  if (!expectedHash) {
-    return false;
-  }
-
-  return safeEqualHex(expectedHash, hashToken(token));
-}
-
 /** command 실행과 실패 중단 정책을 순서대로 수행합니다. */
 function runJobSteps(project: Project, logPath: string): JobStepResult {
-  for (const command of project.commands) {
-    appendLog(logPath, `$ ${command}\n`);
-    const result = runShellCommand(command, project.projectPath);
-    appendLog(logPath, result.stdout);
-    appendLog(logPath, result.stderr);
+  for (const projectPath of project.projectPaths) {
+    appendLog(logPath, `== ${projectPath}\n`);
 
-    if (result.exitCode !== 0) {
-      appendLog(logPath, `\nfailed: ${command} (${result.exitCode})\n`);
-      return { status: "failed", failedStep: command, exitCode: result.exitCode };
+    for (const command of project.commands) {
+      appendLog(logPath, `$ ${command}\n`);
+      const result = runShellCommand(command, projectPath);
+      appendLog(logPath, result.stdout);
+      appendLog(logPath, result.stderr);
+
+      if (result.exitCode !== 0) {
+        const failedStep = `${projectPath}: ${command}`;
+        appendLog(logPath, `\nfailed: ${failedStep} (${result.exitCode})\n`);
+        return { status: "failed", failedStep, exitCode: result.exitCode };
+      }
+
+      appendLog(logPath, "\n");
     }
 
     appendLog(logPath, "\n");
@@ -266,21 +295,99 @@ function appendLog(path: string, text: string): void {
   appendFileSync(path, text);
 }
 
-/** trigger/admin token으로 사용할 난수 문자열을 만듭니다. */
-function createSecretToken(): string {
-  return randomBytes(32).toString("hex");
-}
+/** run 요청에서 실제 실행할 worktree와 저장할 날짜 메타데이터를 결정합니다. */
+function selectRunTarget(project: Project, input: RunProjectInput): RunTarget {
+  const runDate = input.runDate && input.runDate.trim() ? input.runDate.trim() : createRunDate();
+  const projectRoot = input.projectRoot ?? resolveProjectRoot();
+  const requestedWorktreePath = input.worktreePath && input.worktreePath.trim()
+    ? input.worktreePath.trim()
+    : null;
 
-/** token 원문을 저장용 hash로 변환합니다. */
-function hashToken(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
+  if (requestedWorktreePath) {
+    const worktreePath = resolveRegisteredWorktreePath(project, projectRoot, requestedWorktreePath);
+    const worktreeId = worktreeIdFromProjectPath(projectRoot, worktreePath);
 
-/** 길이 차이로 인한 비교 예외를 피하면서 hex hash를 비교합니다. */
-function safeEqualHex(left: string, right: string): boolean {
-  if (left.length !== right.length) {
-    return false;
+    return {
+      project: { ...project, projectPaths: [worktreePath] },
+      metadata: {
+        worktreePath,
+        worktreeId,
+        runDate,
+      },
+    };
   }
 
-  return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+  if (project.projectPaths.length === 1) {
+    const worktreePath = project.projectPaths[0];
+    return {
+      project,
+      metadata: {
+        worktreePath,
+        worktreeId: worktreeIdFromProjectPath(projectRoot, worktreePath),
+        runDate,
+      },
+    };
+  }
+
+  return {
+    project,
+    metadata: {
+      worktreePath: "all",
+      worktreeId: "all",
+      runDate,
+    },
+  };
+}
+
+/** 요청 worktree path가 등록된 project path 중 하나인지 확인하고 실제 경로를 반환합니다. */
+function resolveRegisteredWorktreePath(project: Project, projectRoot: string, requestedWorktreePath: string): string {
+  const worktreePath = resolveProjectPath(projectRoot, requestedWorktreePath);
+  const registeredPaths = new Set(project.projectPaths.map((projectPath) => realpathSync(projectPath)));
+
+  if (!registeredPaths.has(worktreePath)) {
+    throw new Error(`등록된 worktree path가 아닙니다: ${requestedWorktreePath}`);
+  }
+
+  return worktreePath;
+}
+
+/** project root 아래 상대경로의 첫 segment를 worktree id로 사용합니다. */
+function worktreeIdFromProjectPath(projectRootInput: string, projectPathInput: string): string {
+  const projectRoot = realpathSync(resolve(projectRootInput));
+  const projectPath = realpathSync(projectPathInput);
+  const fromRoot = relative(projectRoot, projectPath);
+
+  if (fromRoot === "" || fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    return projectPathInput;
+  }
+
+  return fromRoot.split(sep).filter((segment) => segment.length > 0)[0] ?? fromRoot;
+}
+
+/** project root를 기준으로 여러 상대경로를 실제 실행 디렉터리 목록으로 해석합니다. */
+function resolveProjectPaths(projectRootInput: string, projectPathInputs: readonly string[]): readonly string[] {
+  return Array.from(new Set(projectPathInputs.map((projectPathInput) => {
+    const projectPath = resolveProjectPath(projectRootInput, projectPathInput);
+    if (!statSync(projectPath).isDirectory()) {
+      throw new Error(`directory가 아닙니다: ${projectPath}`);
+    }
+
+    return projectPath;
+  })));
+}
+
+/** project root를 기준으로 상대경로를 실제 실행 디렉터리로 해석합니다. */
+function resolveProjectPath(projectRootInput: string, projectPathInput: string): string {
+  const projectRoot = realpathSync(resolve(projectRootInput));
+  const candidate = isAbsolute(projectPathInput)
+    ? resolve(projectPathInput)
+    : resolve(projectRoot, projectPathInput);
+  const projectPath = realpathSync(candidate);
+  const fromRoot = relative(projectRoot, projectPath);
+
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    throw new Error(`project path는 project root 아래여야 합니다: ${projectRoot}`);
+  }
+
+  return projectPath;
 }

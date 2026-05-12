@@ -1,6 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { homedir } from "node:os";
+import { basename, join, sep } from "node:path";
 import {
+  addProject,
   getJob,
   getJobLog,
   getLatestJob,
@@ -8,11 +11,9 @@ import {
   getProjects,
   getRecentJobs,
   getRecentJobsForProjectName,
-  isTriggerTokenConfigured,
   rerunJob,
+  resolveProjectRoot,
   runProjectByName,
-  setTriggerToken,
-  verifyTriggerToken,
 } from "../../app.ts";
 
 /** 대시보드 서버 실행에 필요한 로컬 런타임 설정입니다. */
@@ -20,8 +21,39 @@ export type DashboardOptions = Readonly<{
   home: string;
   host: string;
   port: number;
-  adminToken?: string;
+  projectRoot?: string;
 }>;
+
+/** Admin API에서 프로젝트 등록에 사용하는 검증된 요청 값입니다. */
+type AdminProjectRequest = Readonly<{
+  name: string;
+  projectPaths: readonly string[] | null;
+  commands: readonly string[];
+}>;
+
+/** Admin 프로젝트 등록 요청의 파싱 결과입니다. */
+type AdminProjectParseResult =
+  | Readonly<{ ok: true; value: AdminProjectRequest }>
+  | Readonly<{ ok: false; error: string }>;
+
+/** Admin UI가 기준 디렉터리 후보 목록으로 표시하는 상대경로입니다. */
+type ProjectRootEntry = Readonly<{
+  path: string;
+  projectName: string;
+}>;
+
+/** 프로젝트 루트로 판단할 때 사용하는 대표 파일 목록입니다. */
+const PROJECT_MARKER_FILES = [
+  ".git",
+  "Cargo.toml",
+  "Makefile",
+  "README.html",
+  "README.md",
+  "go.mod",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pyproject.toml",
+] as const;
 
 /** Mini CI 대시보드와 JSON API 서버를 시작합니다. */
 export function startDashboard(options: DashboardOptions): Server {
@@ -47,14 +79,24 @@ async function handleRequest(
 ): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", "http://localhost");
+  const projectRoot = options.projectRoot ?? resolveProjectRoot();
 
   if (method === "GET" && url.pathname === "/") {
-    sendHtml(response, dashboardHtml());
+    sendHtml(response, dashboardHtml(projectRoot));
     return;
   }
 
   if (method === "GET" && url.pathname === "/admin") {
-    sendHtml(response, adminHtml());
+    sendHtml(response, adminHtml(projectRoot));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/admin/project-root") {
+    sendJson(response, 200, {
+      path: projectRoot,
+      displayPath: displayPathForUser(projectRoot),
+      entries: listProjectRootEntries(projectRoot),
+    });
     return;
   }
 
@@ -73,20 +115,28 @@ async function handleRequest(
     return;
   }
 
-  if (method === "GET" && url.pathname === "/api/admin/trigger-token") {
-    if (!requireAdminToken(options, request, response)) return;
-    sendJson(response, 200, { configured: isTriggerTokenConfigured(options.home) });
-    return;
-  }
+  if (method === "POST" && url.pathname === "/api/admin/projects") {
+    const parsed = parseAdminProjectRequest(await readJsonBody(request));
+    if (!parsed.ok) {
+      sendJson(response, 400, { error: parsed.error });
+      return;
+    }
 
-  if (method === "POST" && url.pathname === "/api/admin/trigger-token") {
-    if (!requireAdminToken(options, request, response)) return;
-    const body = await readJsonBody(request);
-    const token = typeof body.token === "string" && body.token.trim() ? body.token.trim() : undefined;
-    sendJson(response, 201, {
-      configured: true,
-      token: setTriggerToken(options.home, token),
-    });
+    const projectPaths = resolveAdminProjectPaths(projectRoot, parsed.value.name, parsed.value.projectPaths);
+    if (projectPaths.length === 0) {
+      sendJson(response, 404, { error: `project directories not found: ${parsed.value.name}` });
+      return;
+    }
+
+    try {
+      sendJson(response, 201, addProject(options.home, {
+        ...parsed.value,
+        projectPaths,
+        projectRoot,
+      }));
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
     return;
   }
 
@@ -104,17 +154,27 @@ async function handleRequest(
 
   const projectRunsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runs$/);
   if (method === "POST" && projectRunsMatch) {
-    if (!requireTriggerToken(options.home, request, response)) return;
     const body = await readJsonBody(request);
-    const ref = typeof body.ref === "string" && body.ref.trim() ? body.ref.trim() : undefined;
+    const worktreePath = textValue(body.worktreePath ?? body.path ?? body.projectPath) ?? undefined;
+    const runDate = textValue(body.runDate ?? body.date ?? body.ref) ?? undefined;
     try {
       sendJson(response, 201, runProjectByName(options.home, {
         name: decodeURIComponent(projectRunsMatch[1]),
-        ref,
+        projectRoot,
+        worktreePath,
+        runDate,
       }));
     } catch (error) {
       if (error instanceof Error && error.message.includes("프로젝트를 찾을 수 없습니다")) {
         sendJson(response, 404, { error: error.message });
+        return;
+      }
+      if (error instanceof Error && (
+        error.message.includes("등록된 worktree path가 아닙니다")
+        || error.message.includes("project path는 project root 아래여야 합니다")
+        || error.message.includes("ENOENT")
+      )) {
+        sendJson(response, 400, { error: error.message });
         return;
       }
 
@@ -149,7 +209,6 @@ async function handleRequest(
 
   const rerunMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/rerun$/);
   if (method === "POST" && rerunMatch) {
-    if (!requireTriggerToken(options.home, request, response)) return;
     sendJson(response, 201, rerunJob(options.home, rerunMatch[1]));
     return;
   }
@@ -197,58 +256,186 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, un
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-/** trigger token이 유효한지 검사하고 실패 응답을 보냅니다. */
-function requireTriggerToken(home: string, request: IncomingMessage, response: ServerResponse): boolean {
-  if (!isTriggerTokenConfigured(home)) {
-    sendJson(response, 409, { error: "trigger token is not configured" });
-    return false;
+/** Admin 프로젝트 등록 body를 도메인 입력으로 변환합니다. */
+function parseAdminProjectRequest(body: Record<string, unknown>): AdminProjectParseResult {
+  const name = textValue(body.name);
+  const projectPaths = projectPathList(body.paths ?? body.projectPaths ?? body.path ?? body.projectPath);
+  const commands = commandList(body.commands);
+
+  if (!name) {
+    return { ok: false, error: "name is required" };
   }
 
-  const token = bearerToken(request);
-  if (!token || !verifyTriggerToken(home, token)) {
-    sendJson(response, 401, { error: "invalid trigger token" });
-    return false;
+  if (commands.length === 0) {
+    return { ok: false, error: "commands must include at least one command" };
   }
 
-  return true;
+  return {
+    ok: true,
+    value: {
+      name,
+      projectPaths: projectPaths.length > 0 ? projectPaths : null,
+      commands,
+    },
+  };
 }
 
-/** admin token이 유효한지 검사하고 실패 응답을 보냅니다. */
-function requireAdminToken(options: DashboardOptions, request: IncomingMessage, response: ServerResponse): boolean {
-  if (!options.adminToken) {
-    sendJson(response, 503, { error: "MINI_CI_ADMIN_TOKEN is not configured" });
-    return false;
-  }
-
-  const token = bearerToken(request);
-  if (!token || !safeEqualText(token, options.adminToken)) {
-    sendJson(response, 401, { error: "invalid admin token" });
-    return false;
-  }
-
-  return true;
+/** 문자열 입력에서 공백을 정리하고 빈 값은 제거합니다. */
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** Authorization header에서 Bearer token만 추출합니다. */
-function bearerToken(request: IncomingMessage): string | null {
-  const value = request.headers.authorization;
-  if (!value) {
-    return null;
+/** API와 textarea 양쪽 입력을 command 배열로 정규화합니다. */
+function commandList(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const command = textValue(item);
+      return command ? [command] : [];
+    });
   }
 
-  const match = value.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : null;
+  if (typeof value === "string") {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  return [];
 }
 
-/** 문자열 token을 길이 차이 예외 없이 비교합니다. */
-function safeEqualText(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left, "utf8");
-  const rightBuffer = Buffer.from(right, "utf8");
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+/** 단일 path와 paths 배열/textarea 입력을 프로젝트 경로 배열로 정규화합니다. */
+function projectPathList(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const path = textValue(item);
+      return path ? [path] : [];
+    });
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  return [];
+}
+
+/** 사용자에게 보여줄 경로에서 홈 디렉터리를 ~로 축약합니다. */
+function displayPathForUser(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
+}
+
+/** project root 아래에서 등록 후보로 쓸 수 있는 디렉터리 목록을 만듭니다. */
+export function listProjectRootEntries(projectRoot: string): readonly ProjectRootEntry[] {
+  try {
+    return readdirSync(projectRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => nestedDirectoryEntries(projectRoot, entry.name))
+      .map((path) => ({
+        path,
+        projectName: projectNameFromDirectoryPath(path),
+      }))
+      .sort((left, right) => (
+        left.projectName.localeCompare(right.projectName)
+        || left.path.localeCompare(right.path)
+      ))
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
+}
+
+/** 프로젝트명과 일치하는 기준 디렉터리 후보의 상대경로를 찾습니다. */
+export function projectPathsForName(projectRoot: string, name: string): readonly string[] {
+  return listProjectRootEntries(projectRoot)
+    .filter((entry) => entry.projectName === name)
+    .map((entry) => entry.path);
+}
+
+/** Admin 등록 요청에서 명시 경로가 없으면 프로젝트명으로 경로를 자동 탐지합니다. */
+export function resolveAdminProjectPaths(
+  projectRoot: string,
+  name: string,
+  explicitPaths: readonly string[] | null,
+): readonly string[] {
+  return explicitPaths && explicitPaths.length > 0 ? explicitPaths : projectPathsForName(projectRoot, name);
+}
+
+/** worktree 해시 폴더 아래의 실제 프로젝트 디렉터리를 우선 목록에 노출합니다. */
+function nestedDirectoryEntries(projectRoot: string, topLevelName: string): readonly string[] {
+  const topLevelPath = join(projectRoot, topLevelName);
+  try {
+    const children = directoryNames(topLevelPath);
+
+    if (/^[0-9a-f]{4}$/i.test(topLevelName) && children.length > 0) {
+      return children.flatMap((childName) => projectDirectoryCandidates(projectRoot, topLevelName, childName));
+    }
+
+    return [topLevelName, ...children.map((childName) => `${topLevelName}/${childName}`)];
+  } catch {
+    return [topLevelName];
+  }
+}
+
+/** 디렉터리 안의 하위 디렉터리 이름만 정렬해서 반환합니다. */
+function directoryNames(path: string): readonly string[] {
+  return readdirSync(path, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+/** 해시 폴더 아래 프로젝트 segment를 기준으로 실제 등록 후보 경로를 만듭니다. */
+function projectDirectoryCandidates(
+  projectRoot: string,
+  topLevelName: string,
+  projectSegment: string,
+): readonly string[] {
+  const projectPath = join(projectRoot, topLevelName, projectSegment);
+  const projectRelativePath = `${topLevelName}/${projectSegment}`;
+
+  if (looksLikeProjectDirectory(projectPath)) {
+    return [projectRelativePath];
+  }
+
+  try {
+    const nestedProjectPaths = directoryNames(projectPath)
+      .map((childName) => `${projectRelativePath}/${childName}`)
+      .filter((path) => looksLikeProjectDirectory(join(projectRoot, path)));
+
+    return nestedProjectPaths.length > 0 ? nestedProjectPaths : [projectRelativePath];
+  } catch {
+    return [projectRelativePath];
+  }
+}
+
+/** 프로젝트로 실행할 가능성이 높은 디렉터리인지 대표 파일로 가볍게 판별합니다. */
+function looksLikeProjectDirectory(path: string): boolean {
+  return PROJECT_MARKER_FILES.some((marker) => existsSync(join(path, marker)));
+}
+
+/** 후보 경로에서 사용자에게 보여줄 프로젝트명을 추출합니다. */
+function projectNameFromDirectoryPath(path: string): string {
+  const segments = path.split("/").filter((segment) => segment.length > 0);
+  if (segments.length >= 2 && /^[0-9a-f]{4}$/i.test(segments[0])) {
+    return segments[1];
+  }
+
+  if (segments.length >= 3) {
+    return segments[segments.length - 2];
+  }
+
+  return basename(path);
 }
 
 /** 대시보드 단일 HTML 문서를 반환합니다. */
-function dashboardHtml(): string {
+function dashboardHtml(projectRoot: string): string {
+  const projectRootLabel = displayPathForUser(projectRoot);
+
   return `<!doctype html>
 <html lang="ko">
   <head>
@@ -256,33 +443,63 @@ function dashboardHtml(): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Mini CI Dashboard</title>
     <style>
+      @import url("https://cdn.jsdelivr.net/gh/wanteddev/wanted-sans@v1.0.1/packages/wanted-sans/fonts/webfonts/variable/split/WantedSansVariable.min.css");
+
       body {
         margin: 0;
-        background: #f7f8fa;
-        color: #1d2430;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f3f5f7;
+        color: #161c26;
+        font-family: "Wanted Sans Variable", "Wanted Sans", Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: geometricPrecision;
+        font-size: 16px;
+        line-height: 1.55;
       }
       main {
-        max-width: 960px;
+        max-width: 1080px;
         margin: 0 auto;
-        padding: 40px 20px;
+        padding: 36px 24px 52px;
       }
       header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 24px;
+        margin-bottom: 22px;
       }
-      h1, h2 {
+      h1, h2, h3, h4, p {
         margin-top: 0;
+      }
+      h1 {
+        margin-bottom: 0;
+        font-size: 36px;
+        font-weight: 830;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+      h2 {
+        margin-bottom: 14px;
+        font-size: 23px;
+        font-weight: 780;
+        line-height: 1.2;
+      }
+      h3 {
+        font-size: 18px;
+        font-weight: 760;
+        line-height: 1.3;
+      }
+      h4 {
+        font-size: 15px;
+        font-weight: 780;
+        line-height: 1.3;
       }
       section {
         margin-bottom: 24px;
         border: 1px solid #d9dee8;
         border-radius: 8px;
         background: white;
-        padding: 20px;
+        padding: 22px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
       }
       dl {
         display: grid;
@@ -306,6 +523,8 @@ function dashboardHtml(): string {
         background: #101828;
         color: #eef2f7;
         padding: 16px;
+        font-size: 14px;
+        line-height: 1.6;
       }
       input {
         min-height: 36px;
@@ -327,13 +546,73 @@ function dashboardHtml(): string {
         cursor: pointer;
         text-decoration: none;
       }
-      .status {
+      .app-kicker {
+        margin: 0 0 4px;
+        color: #0f766e;
+        font-size: 13px;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .runs-toolbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+        border-bottom: 1px solid #edf1f5;
+        padding-bottom: 16px;
+      }
+      .runs-toolbar p {
+        margin: 6px 0 0;
+        color: #647084;
+      }
+      .details-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+        gap: 24px;
+        align-items: start;
+      }
+      .status,
+      .status-badge {
         display: inline-flex;
+        align-items: center;
+        justify-content: center;
         border-radius: 999px;
-        background: #e6f4f1;
-        color: #0b5f59;
-        padding: 3px 9px;
+        padding: 4px 10px;
+        font-size: 14px;
         font-weight: 700;
+        line-height: 1.2;
+      }
+      .status-success {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .status-running {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .status-failed {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      .status-queued {
+        background: #f1f5f9;
+        color: #475569;
+      }
+      .demo-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+        border-radius: 999px;
+        background: #fff7ed;
+        color: #9a3412;
+        padding: 2px 7px;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.2;
+        vertical-align: middle;
       }
       ul {
         margin: 0;
@@ -347,6 +626,10 @@ function dashboardHtml(): string {
         flex-wrap: wrap;
         gap: 8px;
       }
+      .project-list {
+        justify-content: flex-end;
+        min-width: 260px;
+      }
       .project-list button,
       .history-button {
         border: 1px solid #d9dee8;
@@ -359,37 +642,163 @@ function dashboardHtml(): string {
         color: #0b5f59;
       }
       .history-button {
-        padding: 3px 6px;
+        min-height: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #0b5f59;
+        padding: 0;
+        font: inherit;
+        font-weight: 800;
+      }
+      .run-form input {
+        flex: 1 1 190px;
+      }
+      .history-project + .history-project {
+        margin-top: 24px;
+      }
+      .history-project h3 {
+        margin: 0;
+      }
+      .project-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid #e4eaf1;
+        padding: 22px 0 12px;
+      }
+      .project-meta {
+        color: #647084;
+        font-size: 13px;
+        font-weight: 750;
+      }
+      .run-grid-head,
+      .run-row {
+        display: grid;
+        grid-template-columns: minmax(170px, 1fr) 150px 72px;
+        gap: 16px;
+        align-items: center;
+      }
+      .run-grid-head {
+        color: #647084;
+        font-size: 12px;
+        font-weight: 850;
+        padding: 14px 0 8px;
+        text-transform: uppercase;
+      }
+      .history-worktree {
+        border-top: 1px solid #eef2f7;
+        padding: 12px 0 4px;
+      }
+      .worktree-header {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 14px;
+        align-items: baseline;
+        margin-bottom: 6px;
+      }
+      .worktree-id {
+        color: #161c26;
+        font-size: 15px;
+        font-weight: 820;
+      }
+      .run-rows {
+        margin-left: 110px;
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+      .run-row {
+        min-height: 44px;
+        border-top: 1px solid #eef2f7;
+      }
+      .run-row:first-child {
+        border-top: 0;
+      }
+      .run-row.is-demo {
+        background: #fffdf6;
+      }
+      .worktree-path {
+        display: inline-block;
+        color: #647084;
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 24px 14px 40px;
+        }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .runs-toolbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .project-list {
+          justify-content: flex-start;
+          min-width: 0;
+        }
+        .details-grid {
+          grid-template-columns: 1fr;
+        }
+        .project-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .run-grid-head,
+        .run-row {
+          grid-template-columns: minmax(130px, 1fr) 110px 50px;
+          gap: 10px;
+        }
+        .worktree-header {
+          grid-template-columns: 1fr;
+          gap: 2px;
+        }
+        .run-rows {
+          margin-left: 0;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <header>
-        <h1>Mini CI Dashboard</h1>
+        <div>
+          <p class="app-kicker">Mini CI</p>
+          <h1>Dashboard</h1>
+        </div>
         <a class="button" href="/admin">Admin</a>
       </header>
       <section>
-        <h2>Projects</h2>
-        <div id="projects" class="project-list"></div>
+        <div class="runs-toolbar">
+          <div>
+            <h2>Runs</h2>
+            <p>Project, worktree, date, status, and exit code.</p>
+          </div>
+          <div id="projects" class="project-list"></div>
+        </div>
+        <div id="history"></div>
       </section>
+      <div class="details-grid">
+        <section>
+          <h2>Selected Run</h2>
+          <dl id="job"></dl>
+          <p><button id="rerun" type="button">Rerun</button></p>
+        </section>
+        <section>
+          <h2>Manual Run</h2>
+          <form id="run-form" class="run-form">
+            <input id="run-worktree-path" name="worktreePath" placeholder="worktree path, e.g. 1cf2/storyboard" />
+            <input id="run-date" name="runDate" placeholder="run date, e.g. 05-11 14:30 or 20260511143000" />
+            <button type="submit">Run selected project</button>
+          </form>
+        </section>
+      </div>
       <section>
-        <h2>Run</h2>
-        <form id="run-form" class="run-form">
-          <input id="run-ref" name="ref" placeholder="ref" />
-          <button type="submit">Run selected project</button>
-        </form>
-      </section>
-      <section>
-        <dl id="job"></dl>
-        <p><button id="rerun" type="button">Rerun</button></p>
-      </section>
-      <section>
+        <h2>Logs</h2>
         <pre id="logs">loading...</pre>
-      </section>
-      <section>
-        <h2>History</h2>
-        <ul id="history"></ul>
       </section>
     </main>
     <script>
@@ -399,7 +808,10 @@ function dashboardHtml(): string {
       const historyEl = document.getElementById("history");
       const projectsEl = document.getElementById("projects");
       const runFormEl = document.getElementById("run-form");
-      const runRefEl = document.getElementById("run-ref");
+      const runWorktreePathEl = document.getElementById("run-worktree-path");
+      const runDateEl = document.getElementById("run-date");
+      const projectRootPath = ${JSON.stringify(projectRoot)};
+      const projectRootLabel = ${JSON.stringify(projectRootLabel)};
       let currentJob = null;
       let selectedProjectName = "all";
 
@@ -422,14 +834,81 @@ function dashboardHtml(): string {
 
       async function loadHistory() {
         const jobs = await fetch(jobsUrl()).then((response) => response.json());
-        historyEl.innerHTML = jobs.map((job) => {
-          return "<li><button class='history-button' type='button' data-job-id='" + escapeAttribute(job.id) + "'>" +
-            escapeHtml(job.projectName) + " " +
-            escapeHtml(job.ref) + "</button> " +
-            escapeHtml(job.status) + " " +
-            escapeHtml(job.createdAt) +
-            "</li>";
+        historyEl.innerHTML = renderHistory(jobs);
+      }
+
+      function renderHistory(jobs) {
+        if (!jobs.length) {
+          return "<p>No jobs yet.</p>";
+        }
+
+        return groupJobs(jobs).map((projectGroup) => {
+          return "<div class='history-project'>" +
+            "<div class='project-header'>" +
+            "<h3>" + escapeHtml(projectGroup.name) + "</h3>" +
+            "<span class='project-meta'>" +
+            escapeHtml(projectGroup.worktrees.length) + " worktrees / " +
+            escapeHtml(projectGroup.runCount) + " runs" +
+            "</span>" +
+            "</div>" +
+            "<div class='run-grid-head'><span>Date</span><span>Status</span><span>Exit</span></div>" +
+            projectGroup.worktrees.map(renderWorktreeHistory).join("") +
+            "</div>";
         }).join("");
+      }
+
+      function renderWorktreeHistory(worktreeGroup) {
+        return "<div class='history-worktree'>" +
+          "<div class='worktree-header'>" +
+          "<div class='worktree-id'>" + escapeHtml(worktreeGroup.worktreeId) + "</div>" +
+          "<span class='worktree-path'>" + escapeHtml(displayProjectPath(worktreeGroup.worktreePath)) + "</span>" +
+          "</div>" +
+          "<div class='run-rows'>" +
+          worktreeGroup.jobs.map((job) => {
+            return "<div class='run-row " + (isDemoJob(job) ? "is-demo" : "") + "'>" +
+              "<div><button class='history-button' type='button' data-job-id='" + escapeAttribute(job.id) + "'>" +
+              escapeHtml(formatCompactDate(job.runDate)) + demoBadge(job) +
+              "</button></div>" +
+              "<div>" + statusBadge(job.status) + "</div>" +
+              "<div>" + escapeHtml(job.exitCode ?? "-") + "</div>" +
+              "</div>";
+          }).join("") +
+          "</div></div>";
+      }
+
+      function groupJobs(jobs) {
+        const projects = [];
+        const projectByName = new Map();
+        for (const job of jobs) {
+          const projectName = job.projectName || job.projectId;
+          if (!projectByName.has(projectName)) {
+            const projectGroup = {
+              name: projectName,
+              runCount: 0,
+              worktrees: [],
+              worktreeById: new Map(),
+            };
+            projectByName.set(projectName, projectGroup);
+            projects.push(projectGroup);
+          }
+
+          const projectGroup = projectByName.get(projectName);
+          const worktreeId = job.worktreeId || "unknown";
+          if (!projectGroup.worktreeById.has(worktreeId)) {
+            const worktreeGroup = {
+              worktreeId,
+              worktreePath: job.worktreePath || "-",
+              jobs: [],
+            };
+            projectGroup.worktreeById.set(worktreeId, worktreeGroup);
+            projectGroup.worktrees.push(worktreeGroup);
+          }
+
+          projectGroup.worktreeById.get(worktreeId).jobs.push(job);
+          projectGroup.runCount += 1;
+        }
+
+        return projects;
       }
 
       async function loadProjects() {
@@ -444,11 +923,13 @@ function dashboardHtml(): string {
         rerunEl.disabled = false;
         jobEl.innerHTML = [
           ["프로젝트", escapeHtml(job.projectName || job.projectId)],
-          ["상태", '<span class="status">' + escapeHtml(job.status) + "</span>"],
-          ["Ref", escapeHtml(job.ref)],
+          ["상태", statusBadge(job.status)],
+          ["Worktree ID", escapeHtml(job.worktreeId)],
+          ["Worktree path", escapeHtml(displayProjectPath(job.worktreePath))],
+          ["Run date", escapeHtml(formatCompactDate(job.runDate)) + demoBadge(job)],
           ["실패 step", escapeHtml(job.failedStep || "-")],
           ["exit code", escapeHtml(job.exitCode ?? "-")],
-          ["생성", escapeHtml(job.createdAt)],
+          ["생성", escapeHtml(formatCompactDate(job.createdAt))],
         ].map(([key, value]) => "<dt>" + key + "</dt><dd>" + value + "</dd>").join("");
       }
 
@@ -480,16 +961,6 @@ function dashboardHtml(): string {
         return "/api/projects/" + encodeURIComponent(selectedProjectName) + "/jobs";
       }
 
-      async function triggerHeaders() {
-        let token = sessionStorage.getItem("miniCiTriggerToken");
-        if (!token) {
-          token = prompt("Trigger token");
-          if (token) sessionStorage.setItem("miniCiTriggerToken", token);
-        }
-
-        return token ? { Authorization: "Bearer " + token } : {};
-      }
-
       historyEl.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-job-id]");
         if (!button) return;
@@ -504,10 +975,8 @@ function dashboardHtml(): string {
         if (!currentJob) return;
         const response = await fetch("/api/jobs/" + currentJob.id + "/rerun", {
           method: "POST",
-          headers: await triggerHeaders(),
         });
         if (!response.ok) {
-          sessionStorage.removeItem("miniCiTriggerToken");
           alert(await response.text());
           return;
         }
@@ -524,18 +993,20 @@ function dashboardHtml(): string {
         const response = await fetch("/api/projects/" + encodeURIComponent(selectedProjectName) + "/runs", {
           method: "POST",
           headers: {
-            ...(await triggerHeaders()),
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ ref: runRefEl.value.trim() || undefined }),
+          body: JSON.stringify({
+            worktreePath: runWorktreePathEl.value.trim() || undefined,
+            runDate: runDateEl.value.trim() || undefined,
+          }),
         });
         if (!response.ok) {
-          sessionStorage.removeItem("miniCiTriggerToken");
           alert(await response.text());
           return;
         }
 
-        runRefEl.value = "";
+        runWorktreePathEl.value = "";
+        runDateEl.value = "";
         await load();
       });
 
@@ -552,6 +1023,70 @@ function dashboardHtml(): string {
         return escapeHtml(value).replaceAll(String.fromCharCode(96), "&#96;");
       }
 
+      function displayProjectPath(path) {
+        const value = String(path);
+        if (value === projectRootPath) {
+          return projectRootLabel;
+        }
+
+        if (value.startsWith(projectRootPath + "/")) {
+          return projectRootLabel + "/" + value.slice(projectRootPath.length + 1);
+        }
+
+        return value;
+      }
+
+      function statusBadge(status) {
+        const statusText = String(status || "queued");
+        const knownStatus = ["queued", "running", "success", "failed"].includes(statusText)
+          ? statusText
+          : "queued";
+        return '<span class="status-badge status-' + escapeAttribute(knownStatus) + '">' +
+          escapeHtml(statusText) +
+          "</span>";
+      }
+
+      function demoBadge(job) {
+        return isDemoJob(job) ? '<span class="demo-badge">demo</span>' : "";
+      }
+
+      function isDemoJob(job) {
+        return String(job.runDate || "").startsWith("demo-");
+      }
+
+      function formatCompactDate(value) {
+        const text = String(value || "").replace(/^demo-/, "");
+        if (/^\\d{4}-/.test(text)) {
+          const date = new Date(text);
+          if (!Number.isNaN(date.getTime())) {
+            return formatDateParts(date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes());
+          }
+        }
+
+        const compact = text.match(/^(\\d{4})-?(\\d{2})-?(\\d{2})T?(\\d{2}):?(\\d{2})/);
+        if (compact) {
+          const month = compact[2];
+          const day = compact[3];
+          const hour = compact[4];
+          const minute = compact[5];
+          return month + "-" + day + " " + hour + ":" + minute;
+        }
+
+        const date = new Date(text);
+        if (!Number.isNaN(date.getTime())) {
+          return formatDateParts(date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes());
+        }
+
+        return text;
+      }
+
+      function formatDateParts(month, day, hour, minute) {
+        return String(month).padStart(2, "0") + "-" +
+          String(day).padStart(2, "0") + " " +
+          String(hour).padStart(2, "0") + ":" +
+          String(minute).padStart(2, "0");
+      }
+
       load();
       setInterval(load, 3000);
     </script>
@@ -559,8 +1094,10 @@ function dashboardHtml(): string {
 </html>`;
 }
 
-/** trigger token 관리를 위한 admin HTML 문서를 반환합니다. */
-function adminHtml(): string {
+/** 프로젝트 설정을 관리하는 admin HTML 문서를 반환합니다. */
+function adminHtml(projectRoot: string): string {
+  const escapedProjectRoot = escapeHtmlText(displayPathForUser(projectRoot));
+
   return `<!doctype html>
 <html lang="ko">
   <head>
@@ -568,23 +1105,95 @@ function adminHtml(): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Mini CI Admin</title>
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
-        background: #f7f8fa;
+        background: #f4f6f8;
         color: #1d2430;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
       }
       main {
-        max-width: 760px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 40px 20px;
+        padding: 32px 24px 48px;
       }
-      section {
-        margin-bottom: 24px;
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      .eyebrow {
+        color: #0f766e;
+        font-size: 0.76rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin-top: 2px;
+        font-size: 1.8rem;
+        line-height: 1.15;
+      }
+      h2 {
+        font-size: 1.08rem;
+        line-height: 1.25;
+      }
+      h3 {
+        margin-top: 18px;
+        font-size: 0.95rem;
+      }
+      .admin-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .panel {
         border: 1px solid #d9dee8;
         border-radius: 8px;
         background: white;
-        padding: 20px;
+        padding: 18px;
+        box-shadow: 0 1px 2px rgb(16 24 40 / 0.04);
+      }
+      .panel-wide {
+        grid-column: 1;
+      }
+      .side-stack {
+        display: grid;
+        gap: 16px;
+      }
+      .panel-header {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .panel-header p {
+        margin-top: 4px;
+        color: #647084;
+      }
+      .step {
+        display: inline-flex;
+        width: 26px;
+        height: 26px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: #e6f4f1;
+        color: #0b5f59;
+        font-weight: 800;
       }
       label {
         display: grid;
@@ -592,11 +1201,40 @@ function adminHtml(): string {
         margin-bottom: 14px;
         font-weight: 700;
       }
-      input {
-        min-height: 36px;
+      .field-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .optional {
+        color: #647084;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      input,
+      textarea {
+        width: 100%;
+        min-height: 38px;
         border: 1px solid #cbd5e1;
         border-radius: 6px;
         padding: 0 10px;
+        font: inherit;
+        color: #1d2430;
+        outline: none;
+      }
+      input:focus,
+      textarea:focus {
+        border-color: #0f766e;
+        box-shadow: 0 0 0 3px #d7f1ed;
+      }
+      ::placeholder {
+        color: #98a2b3;
+      }
+      textarea {
+        min-height: 104px;
+        padding: 10px;
+        resize: vertical;
       }
       button, a {
         display: inline-flex;
@@ -612,66 +1250,424 @@ function adminHtml(): string {
         cursor: pointer;
         text-decoration: none;
       }
+      a.secondary,
+      button.secondary {
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #1d2430;
+      }
       pre {
         overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
         border-radius: 8px;
         background: #101828;
         color: #eef2f7;
-        padding: 16px;
+        padding: 12px;
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+      code {
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #334155;
+        padding: 0.1rem 0.25rem;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+      .hint {
+        margin-top: -6px;
+        margin-bottom: 14px;
+        color: #647084;
+        font-size: 0.9rem;
+      }
+      .base-path {
+        margin-bottom: 16px;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #475569;
+        padding: 10px 12px;
+      }
+      .worktree-browser {
+        margin-bottom: 16px;
+      }
+      .worktree-browser .field-label {
+        margin-bottom: 8px;
+      }
+      .small-button {
+        min-height: 28px;
+        padding: 0 10px;
+        font-size: 0.78rem;
+      }
+      .worktree-list {
+        display: grid;
+        gap: 10px;
+        padding-left: 0;
+        list-style: none;
+      }
+      .worktree-list li {
+        margin-top: 0;
+      }
+      .project-candidate {
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background: #fbfcfe;
+        padding: 10px;
+      }
+      .worktree-list button {
+        display: grid;
+        justify-items: start;
+        min-height: 30px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #1d2430;
+        padding: 6px 10px;
+        text-align: left;
+      }
+      .project-candidate.is-selected button {
+        border-color: #0f766e;
+        box-shadow: 0 0 0 3px #d7f1ed;
+      }
+      .directory-name {
+        font-weight: 800;
+      }
+      .directory-path {
+        color: #647084;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.76rem;
+      }
+      .client-api {
+        margin-top: 14px;
+      }
+      .client-api h3 {
+        margin: 0 0 8px;
+        color: #0f766e;
+        font-size: 0.95rem;
+        font-weight: 800;
+      }
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      li + li {
+        margin-top: 8px;
+      }
+      .project-list strong {
+        color: #0b5f59;
+      }
+      .project-path-list {
+        display: grid;
+        gap: 4px;
+        margin-top: 6px;
+        padding-left: 0;
+        list-style: none;
+      }
+      .project-path-list li {
+        margin-top: 0;
+      }
+      .project-path-list code {
+        display: inline-block;
+        max-width: 100%;
+        background: #f1f5f9;
+        overflow-wrap: anywhere;
+      }
+      @media (max-width: 840px) {
+        main {
+          padding: 24px 16px 40px;
+        }
+        .admin-grid {
+          grid-template-columns: 1fr;
+        }
+        .panel-wide {
+          grid-column: auto;
+        }
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Mini CI Admin</h1>
-      <p><a href="/">Dashboard</a></p>
-      <section>
-        <label>
-          Admin token
-          <input id="admin-token" type="password" autocomplete="current-password" />
-        </label>
-        <label>
-          Trigger token
-          <input id="trigger-token" autocomplete="off" />
-        </label>
-        <button id="save" type="button">Save trigger token</button>
-        <button id="generate" type="button">Generate trigger token</button>
-      </section>
-      <section>
-        <h2>Result</h2>
-        <pre id="result">-</pre>
-      </section>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h1>Mini CI Admin</h1>
+        </div>
+        <a class="secondary" href="/">Dashboard</a>
+      </header>
+      <div class="admin-grid">
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <span class="step">1</span>
+            <div>
+              <h2>Register project</h2>
+              <p>Choose an existing directory under the base path.</p>
+            </div>
+          </div>
+          <p class="base-path">Codex worktree base: <code>${escapedProjectRoot}</code></p>
+          <div class="worktree-browser">
+            <div class="field-label">
+              <strong>Available directories</strong>
+              <button id="refresh-worktrees" class="secondary small-button" type="button">Refresh</button>
+            </div>
+            <ul id="worktree-list" class="worktree-list">
+              <li>Loading...</li>
+            </ul>
+          </div>
+          <label>
+            Project name
+            <input id="project-name" autocomplete="off" placeholder="storyboard" />
+          </label>
+          <p class="hint">Click a candidate or enter a project name. Matching directories are discovered automatically.</p>
+          <label>
+            <span class="field-label">
+              Commands
+              <span class="optional">one per line</span>
+            </span>
+            <textarea id="project-commands" autocomplete="off" placeholder="npm test"></textarea>
+          </label>
+          <button id="save-project" type="button">Save project</button>
+          <div class="client-api">
+            <h3>Client process API calls</h3>
+            <p class="hint">WORKTREE_PATH selects the worktree. RUN_DATE becomes the date row on the dashboard.</p>
+            <pre id="curl-example"></pre>
+          </div>
+        </section>
+        <div class="side-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <span class="step">2</span>
+              <div>
+                <h2>Projects</h2>
+                <p>Registered directories available on the dashboard.</p>
+              </div>
+            </div>
+            <ul id="projects" class="project-list"></ul>
+          </section>
+          <section class="panel">
+            <h2>Result</h2>
+            <pre id="result">Waiting for an action.</pre>
+          </section>
+        </div>
+      </div>
     </main>
     <script>
-      const adminTokenEl = document.getElementById("admin-token");
-      const triggerTokenEl = document.getElementById("trigger-token");
+      const projectNameEl = document.getElementById("project-name");
+      const projectCommandsEl = document.getElementById("project-commands");
+      const curlExampleEl = document.getElementById("curl-example");
+      const worktreeListEl = document.getElementById("worktree-list");
+      const projectsEl = document.getElementById("projects");
       const resultEl = document.getElementById("result");
+      const projectRootPath = ${JSON.stringify(projectRoot)};
+      const projectRootLabel = ${JSON.stringify(displayPathForUser(projectRoot))};
 
-      document.getElementById("save").addEventListener("click", async () => {
-        await saveToken(triggerTokenEl.value.trim());
+      document.getElementById("save-project").addEventListener("click", async () => {
+        const name = projectNameEl.value.trim();
+        const commands = commandValues();
+        if (!name || commands.length === 0) {
+          setResult("Choose or enter a project name, then add at least one command.");
+          return;
+        }
+
+        const response = await saveProject({ name, commands });
+        await showResult(response);
+        if (response.ok) {
+          await loadProjects();
+        }
       });
 
-      document.getElementById("generate").addEventListener("click", async () => {
-        await saveToken(undefined);
+      projectNameEl.addEventListener("input", () => {
+        clearSelectedCandidate();
+        updateCurlExample();
       });
+      projectCommandsEl.addEventListener("input", updateCurlExample);
 
-      async function saveToken(token) {
-        const response = await fetch("/api/admin/trigger-token", {
+      document.getElementById("refresh-worktrees").addEventListener("click", loadProjectRoot);
+
+      async function showResult(response) {
+        const text = await response.text();
+        setResult(text);
+      }
+
+      function setResult(text) {
+        resultEl.textContent = text;
+      }
+
+      function updateCurlExample() {
+        const name = projectNameEl.value.trim();
+        const commands = commandValues();
+        if (!name || commands.length === 0) {
+          curlExampleEl.textContent = "Choose or enter a project name and commands to generate client API calls.";
+          return;
+        }
+
+        const registerBody = {
+          name,
+          commands,
+        };
+        const commandsJson = JSON.stringify(registerBody.commands);
+        const projectNameToken = "$" + "{PROJECT_NAME}";
+        const worktreeIdToken = "$" + "{WORKTREE_ID}";
+        const worktreePathToken = "$" + "{WORKTREE_PATH}";
+        const commandsToken = "$" + "{COMMANDS}";
+        const runDateToken = "$" + "{RUN_DATE}";
+        curlExampleEl.textContent = 'PROJECT_NAME="' + shellDoubleQuoteValue(name) + '"\\n' +
+          'WORKTREE_ID="1cf2"\\n' +
+          'WORKTREE_PATH="' + worktreeIdToken + "/" + projectNameToken + '"\\n' +
+          'RUN_DATE="$(date +%Y%m%d%H%M%S)"\\n' +
+          "COMMANDS=" + shellSingleQuoteValue(commandsJson) + "\\n\\n" +
+          "# Refresh " + name + " for the selected worktree\\n" +
+          'curl -X POST "' + window.location.origin + '/api/admin/projects" \\\\\\n' +
+          '  -H "Content-Type: application/json" \\\\\\n' +
+          '  -d "{\\\\"name\\\\":\\\\"' + projectNameToken + '\\\\",\\\\"paths\\\\":[\\\\"' + worktreePathToken + '\\\\"],\\\\"commands\\\\":' + commandsToken + '}"\\n\\n' +
+          "# Start a " + name + " run for " + worktreePathToken + "\\n" +
+          'curl -X POST "' + window.location.origin + '/api/projects/' + projectNameToken + '/runs" \\\\\\n' +
+          '  -H "Content-Type: application/json" \\\\\\n' +
+          '  -d "{\\\\"worktreePath\\\\":\\\\"' + worktreePathToken + '\\\\",\\\\"runDate\\\\":\\\\"' + runDateToken + '\\\\"}"';
+      }
+
+      function shellDoubleQuoteValue(value) {
+        return String(value)
+          .replaceAll("\\\\", "\\\\\\\\")
+          .replaceAll('"', '\\\\"')
+          .replaceAll("$", "\\\\$")
+          .replaceAll(String.fromCharCode(96), "\\\\" + String.fromCharCode(96));
+      }
+
+      function shellSingleQuoteValue(value) {
+        return "'" + String(value).replaceAll("'", "'\\\\''") + "'";
+      }
+
+      function commandValues() {
+        return projectCommandsEl.value
+          .split("\\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+      }
+
+      async function saveProject(body) {
+        return fetch("/api/admin/projects", {
           method: "POST",
           headers: {
-            Authorization: "Bearer " + adminTokenEl.value,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(token ? { token } : {}),
+          body: JSON.stringify(body),
         });
-        const text = await response.text();
-        resultEl.textContent = text;
-        if (response.ok) {
-          const body = JSON.parse(text);
-          triggerTokenEl.value = body.token || "";
+      }
+
+      async function loadProjectRoot() {
+        const response = await fetch("/api/admin/project-root");
+        if (!response.ok) {
+          worktreeListEl.innerHTML = "<li>Cannot load directories</li>";
+          return;
+        }
+
+        const info = await response.json();
+        worktreeListEl.replaceChildren();
+        const entries = Array.isArray(info.entries) ? info.entries : [];
+        if (entries.length === 0) {
+          const empty = document.createElement("li");
+          empty.textContent = "No directories found";
+          worktreeListEl.append(empty);
+          return;
+        }
+
+        for (const group of groupEntriesByProject(entries)) {
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          const name = document.createElement("span");
+          const path = document.createElement("span");
+          item.className = "project-candidate";
+          button.type = "button";
+          name.className = "directory-name";
+          name.textContent = group.projectName;
+          path.className = "directory-path";
+          path.textContent = group.entries.map((entry) => entry.path).join(", ");
+          button.append(name, path);
+          button.addEventListener("click", () => {
+            projectNameEl.value = group.projectName;
+            clearSelectedCandidate();
+            item.classList.add("is-selected");
+            updateCurlExample();
+          });
+          item.append(button);
+          worktreeListEl.append(item);
         }
       }
+
+      function clearSelectedCandidate() {
+        for (const candidate of worktreeListEl.querySelectorAll(".project-candidate")) {
+          candidate.classList.remove("is-selected");
+        }
+      }
+
+      function groupEntriesByProject(entries) {
+        const groups = new Map();
+        for (const entry of entries) {
+          const projectName = entry.projectName || "unknown";
+          groups.set(projectName, [...(groups.get(projectName) || []), entry]);
+        }
+
+        return Array.from(groups.entries()).map(([projectName, projectEntries]) => ({
+          projectName,
+          entries: projectEntries,
+        }));
+      }
+
+      async function loadProjects() {
+        const projects = await fetch("/api/projects").then((response) => response.json());
+        projectsEl.innerHTML = projects.length === 0
+          ? "<li>No projects</li>"
+          : projects.map((project) => {
+              const paths = Array.isArray(project.projectPaths) ? project.projectPaths : [project.projectPath || ""];
+              return "<li><strong>" + escapeHtml(project.name) + "</strong><br />" +
+                "<ul class='project-path-list'>" +
+                paths.filter(Boolean).map((path) => (
+                  "<li><code>" + escapeHtml(displayProjectPath(path)) + "</code></li>"
+                )).join("") +
+                "</ul>" +
+                "</li>";
+            }).join("");
+      }
+
+      function displayProjectPath(path) {
+        const value = String(path);
+        if (value === projectRootPath) {
+          return projectRootLabel;
+        }
+
+        if (value.startsWith(projectRootPath + "/")) {
+          return projectRootLabel + "/" + value.slice(projectRootPath.length + 1);
+        }
+
+        return value;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      loadProjectRoot();
+      loadProjects();
+      updateCurlExample();
     </script>
   </body>
 </html>`;
+}
+
+/** 서버에서 HTML에 삽입할 텍스트를 escape합니다. */
+function escapeHtmlText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

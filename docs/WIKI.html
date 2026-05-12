@@ -429,7 +429,7 @@
             <circle cx="498" cy="220" r="14" class="chart-badge"></circle>
             <text x="494" y="224" class="chart-badge-text">3</text>
             <text x="518" y="220" class="chart-node-title">HTTP trigger</text>
-            <text x="518" y="244" class="chart-node-caption">Project + ref + token</text>
+            <text x="518" y="244" class="chart-node-caption">Project + worktree + date</text>
 
             <rect x="674" y="132" width="176" height="82" rx="8" class="chart-node"></rect>
             <circle cx="698" cy="156" r="14" class="chart-badge"></circle>
@@ -485,7 +485,7 @@
               <span class="pipeline-badge">3</span>
               <div>
                 <h3>HTTP trigger</h3>
-                <p>Send project name, ref, and trigger token.</p>
+                <p>Send project name, selected worktree, and run date.</p>
               </div>
               <span class="pipeline-owner">handoff</span>
             </div>
@@ -545,7 +545,7 @@
           </div>
           <div class="state-card">
             <strong>Run</strong>
-            <span>Project, ref, status, exit code, and timestamps.</span>
+            <span>Project, worktree, run date, status, exit code, and timestamps.</span>
           </div>
           <div class="state-card">
             <strong>Log</strong>
@@ -555,46 +555,45 @@
         <blockquote>Mini CI가 저장하는 핵심 상태는 project, run, log 세 가지입니다.</blockquote>
 
         <h2>Start The Server</h2>
-        <p>Set an admin token before exposing the server on a LAN address.</p>
-        <blockquote>LAN 주소로 서버를 열기 전 admin token을 설정합니다.</blockquote>
-        <pre><code>MINI_CI_ADMIN_TOKEN=admin-secret \
-bin/mini-ci start --host 0.0.0.0 --port 4177</code></pre>
+        <p>Start the server on the CI machine. If you expose it on a LAN address, anyone who can reach it can register projects and trigger runs.</p>
+        <blockquote>CI 머신에서 서버를 시작합니다. LAN 주소로 열면 접근 가능한 사용자는 누구나 프로젝트 등록과 run 실행을 할 수 있습니다.</blockquote>
+        <p>Project paths are discovered by project name under <code>~/.codex/worktrees</code> by default. Set <code>MINI_CI_PROJECT_ROOT</code> when another base directory is needed.</p>
+        <blockquote>프로젝트 경로는 기본적으로 <code>~/.codex/worktrees</code> 아래에서 프로젝트명으로 자동 탐지합니다. 다른 기준 디렉터리가 필요하면 <code>MINI_CI_PROJECT_ROOT</code>를 설정합니다.</blockquote>
+        <pre><code>bin/mini-ci start --host 0.0.0.0 --port 4177</code></pre>
 
         <h2>Register A Project</h2>
-        <p>Register the directory where commands should run. The directory must already exist on the Mini CI machine.</p>
-        <blockquote>command를 실행할 디렉터리를 등록합니다. 해당 디렉터리는 Mini CI 머신에 이미 존재해야 합니다.</blockquote>
-        <pre><code>bin/mini-ci project add storyboard \
-  --path /Users/kueni-16/ci-sources/storyboard/current \
-  --cmd "test -f README.md"</code></pre>
+        <p>Open <code>/admin</code>, choose a project, and save it once. The client deployment process should refresh the project and start a run after it prepares the worktree directories.</p>
+        <blockquote><code>/admin</code>을 열고 프로젝트를 선택해 한 번 저장합니다. 이후 클라이언트 배포 프로세스는 worktree 디렉터리를 준비한 뒤 프로젝트를 갱신하고 run을 시작해야 합니다.</blockquote>
+        <p>Use these calls from the client process after deployment finishes.</p>
+        <blockquote>배포가 끝난 뒤 클라이언트 프로세스에서 아래 호출을 사용합니다.</blockquote>
+        <p><code>WORKTREE_PATH</code> selects the worktree to run. <code>RUN_DATE</code> becomes the date row on the dashboard.</p>
+        <blockquote><code>WORKTREE_PATH</code>는 실행할 worktree를 선택합니다. <code>RUN_DATE</code>는 대시보드의 날짜 행으로 표시됩니다.</blockquote>
+<pre><code>PROJECT_NAME="storyboard"
+WORKTREE_ID="1cf2"
+WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
+RUN_DATE="$(date +%Y%m%d%H%M%S)"
+COMMANDS='["npm test"]'
 
-        <h2>Manage Trigger Token</h2>
-        <p>Open <code>/admin</code>, enter the admin token, and generate or save a trigger token.</p>
-        <blockquote><code>/admin</code>을 열고 admin token을 입력한 뒤 trigger token을 생성하거나 저장합니다.</blockquote>
-        <p>The trigger token is stored as a hash. The plain token is shown only when it is created or replaced.</p>
-        <blockquote>trigger token은 hash로 저장됩니다. 원문 token은 생성하거나 교체한 직후에만 표시됩니다.</blockquote>
-
-        <h2>Trigger A Run</h2>
-        <p>After deployment finishes, call the run API with the trigger token.</p>
-        <blockquote>배포가 끝난 뒤 trigger token을 포함해 run API를 호출합니다.</blockquote>
-        <pre><code>curl -X POST http://kueni-16.local:4177/api/projects/storyboard/runs \
-  -H "Authorization: Bearer $MINI_CI_TRIGGER_TOKEN" \
+curl -X POST http://kueni-16.local:4177/api/admin/projects \
   -H "Content-Type: application/json" \
-  -d '{"ref":"manual-20260511"}'</code></pre>
+  -d "{\"name\":\"${PROJECT_NAME}\",\"paths\":[\"${WORKTREE_PATH}\"],\"commands\":${COMMANDS}}"
+
+curl -X POST "http://kueni-16.local:4177/api/projects/${PROJECT_NAME}/runs" \
+  -H "Content-Type: application/json" \
+  -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
 
         <h2>Dashboard</h2>
-        <p>The dashboard shows all projects by default and can filter jobs by project.</p>
-        <blockquote>대시보드는 기본적으로 전체 프로젝트를 보여주며, 프로젝트별 job 필터링을 지원합니다.</blockquote>
-        <p>Job details show project, status, ref, failed step, exit code, creation time, and logs.</p>
-        <blockquote>job 상세에는 프로젝트, 상태, ref, 실패 step, exit code, 생성 시각, 로그가 표시됩니다.</blockquote>
+        <p>The dashboard groups history by project name and worktree ID. Each run appears as a date row.</p>
+        <blockquote>대시보드는 실행 이력을 project name과 worktree ID 기준으로 묶고, 각 run을 날짜 행으로 표시합니다.</blockquote>
+        <p>Job details show project, worktree ID, worktree path, run date, status, failed step, exit code, creation time, and logs.</p>
+        <blockquote>job 상세에는 프로젝트, worktree ID, worktree path, run date, 상태, 실패 step, exit code, 생성 시각, 로그가 표시됩니다.</blockquote>
 
         <h2>Troubleshooting</h2>
         <ul>
-          <li><code>409 trigger token is not configured</code>: create a trigger token from <code>/admin</code>.</li>
-          <li><code>401 invalid trigger token</code>: update the caller to use the current trigger token.</li>
-          <li><code>404 project not found</code>: check the project name passed to <code>project add</code>.</li>
+          <li><code>404 project not found</code>: check the project name registered from <code>/admin</code>.</li>
           <li>Command failures are recorded in the job log and keep the job status as <code>failed</code>.</li>
         </ul>
-        <blockquote>문제가 생기면 token 설정, 프로젝트 이름, job 로그의 실패 command를 먼저 확인합니다.</blockquote>
+        <blockquote>문제가 생기면 프로젝트 이름과 job 로그의 실패 command를 먼저 확인합니다.</blockquote>
       </article>
     </main>
   </body>

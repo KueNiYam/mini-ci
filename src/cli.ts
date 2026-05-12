@@ -1,16 +1,14 @@
 import {
-  addProject,
+  ensureProjectRoot,
   initMiniCi,
   resolveMiniCiHome,
-  runProjectByName,
-  setTriggerToken,
+  resolveProjectRoot,
 } from "./app.ts";
 import { startDashboard } from "./adapters/http/dashboard.ts";
 
 /** CLI parser가 명령 처리에 넘기는 옵션/인자 구조입니다. */
 type ParsedOptions = Readonly<{
   values: Readonly<Record<string, string>>;
-  lists: Readonly<Record<string, readonly string[]>>;
   positionals: readonly string[];
 }>;
 
@@ -48,60 +46,14 @@ async function routeCommand(argv: readonly string[]): Promise<void> {
     const options = parseOptions(rest);
     const port = Number(options.values.port ?? "4177");
     const host = options.values.host ?? "127.0.0.1";
+    const projectRoot = ensureProjectRoot(resolveProjectRoot());
     initMiniCi(home);
     startDashboard({
       home,
       host,
       port,
-      adminToken: process.env.MINI_CI_ADMIN_TOKEN,
+      projectRoot,
     });
-    return;
-  }
-
-  if (command === "project" && rest[0] === "add") {
-    const options = parseOptions(rest.slice(1));
-    const name = options.positionals[0];
-    const projectPath = options.values.path;
-    if (!name) {
-      throw new Error("프로젝트 이름이 필요합니다.");
-    }
-
-    if (!projectPath) {
-      throw new Error("--path 값이 필요합니다.");
-    }
-
-    const project = addProject(home, {
-      name,
-      projectPath,
-      commands: options.lists.cmd ?? [],
-    });
-
-    console.log(`project registered: ${project.name}`);
-    console.log(`path: ${project.projectPath}`);
-    return;
-  }
-
-  if (command === "run") {
-    const options = parseOptions(rest);
-    const name = options.values.project ?? options.positionals[0];
-    if (!name) {
-      throw new Error("--project 값 또는 프로젝트 이름이 필요합니다.");
-    }
-
-    const job = runProjectByName(home, {
-      name,
-      ref: options.values.ref,
-    });
-    console.log("job created");
-    console.log(`project: ${name}`);
-    console.log(`ref: ${job.ref}`);
-    console.log(`status: ${job.status}`);
-    return;
-  }
-
-  if (command === "token" && rest[0] === "create") {
-    const token = setTriggerToken(home);
-    console.log(token);
     return;
   }
 
@@ -111,7 +63,6 @@ async function routeCommand(argv: readonly string[]): Promise<void> {
 /** 반복 옵션을 포함한 간단한 CLI 옵션을 파싱합니다. */
 function parseOptions(argv: readonly string[]): ParsedOptions {
   const values: Record<string, string> = {};
-  const lists: Record<string, string[]> = {};
   const positionals: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -128,14 +79,10 @@ function parseOptions(argv: readonly string[]): ParsedOptions {
     }
 
     index += 1;
-    if (key === "cmd") {
-      lists.cmd = [...(lists.cmd ?? []), value];
-    } else {
-      values[key] = value;
-    }
+    values[key] = value;
   }
 
-  return { values, lists, positionals };
+  return { values, positionals };
 }
 
 /** 경로 출력에서 파일명만 표시하기 위한 작은 변환 함수입니다. */
@@ -150,9 +97,11 @@ function printHelp(): void {
 Usage:
   mini-ci init
   mini-ci start [--host 127.0.0.1] [--port 4177]
-  mini-ci project add <name> --path <directory> --cmd <command>
-  mini-ci run --project <name> [--ref <ref>]
-  mini-ci token create
+
+After start:
+  Project management: /admin
+  Run: POST /api/projects/:name/runs with worktreePath and runDate
+  Project root: ~/.codex/worktrees or MINI_CI_PROJECT_ROOT
 `);
 }
 

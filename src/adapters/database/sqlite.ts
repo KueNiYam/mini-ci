@@ -9,7 +9,7 @@ export type MiniCiPaths = Readonly<{
   logsDir: string;
 }>;
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 
 /** sqlite3 JSON 출력의 경계 타입입니다. */
 type Row = Record<string, unknown>;
@@ -57,7 +57,7 @@ export function initializeDatabase(home: string): void {
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
-      project_path TEXT NOT NULL,
+      project_paths_json TEXT NOT NULL,
       commands_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
@@ -65,7 +65,9 @@ export function initializeDatabase(home: string): void {
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      ref TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      worktree_id TEXT NOT NULL,
+      run_date TEXT NOT NULL,
       status TEXT NOT NULL,
       failed_step TEXT,
       exit_code INTEGER,
@@ -84,6 +86,7 @@ export function initializeDatabase(home: string): void {
 
     CREATE INDEX IF NOT EXISTS jobs_created_at_idx ON jobs(created_at DESC);
     CREATE INDEX IF NOT EXISTS jobs_project_id_idx ON jobs(project_id);
+    CREATE INDEX IF NOT EXISTS jobs_project_worktree_run_date_idx ON jobs(project_id, worktree_id, run_date DESC);
 
     PRAGMA user_version = ${SCHEMA_VERSION};
     `,
@@ -98,22 +101,20 @@ export function saveProject(home: string, project: Project): void {
     INSERT INTO projects (
       id,
       name,
-      project_path,
+      project_paths_json,
       commands_json,
       created_at
     )
     VALUES (
       ${sqlText(project.id)},
       ${sqlText(project.name)},
-      ${sqlText(project.projectPath)},
+      ${sqlText(JSON.stringify(project.projectPaths))},
       ${sqlText(JSON.stringify(project.commands))},
       ${sqlText(project.createdAt)}
     )
     ON CONFLICT(name) DO UPDATE SET
-      id = excluded.id,
-      project_path = excluded.project_path,
-      commands_json = excluded.commands_json,
-      created_at = excluded.created_at;
+      project_paths_json = excluded.project_paths_json,
+      commands_json = excluded.commands_json;
     `,
   );
 }
@@ -126,7 +127,7 @@ export function findProjectById(home: string, projectId: string): Project | null
     SELECT
       id,
       name,
-      project_path,
+      project_paths_json,
       commands_json,
       created_at
     FROM projects
@@ -146,7 +147,7 @@ export function findProjectByName(home: string, name: string): Project | null {
     SELECT
       id,
       name,
-      project_path,
+      project_paths_json,
       commands_json,
       created_at
     FROM projects
@@ -166,7 +167,7 @@ export function findLatestProject(home: string): Project | null {
     SELECT
       id,
       name,
-      project_path,
+      project_paths_json,
       commands_json,
       created_at
     FROM projects
@@ -186,7 +187,7 @@ export function findProjects(home: string): readonly Project[] {
     SELECT
       id,
       name,
-      project_path,
+      project_paths_json,
       commands_json,
       created_at
     FROM projects
@@ -197,35 +198,6 @@ export function findProjects(home: string): readonly Project[] {
   return rows.map(rowToProject);
 }
 
-/** trigger token hash를 저장합니다. */
-export function saveTriggerTokenHash(home: string, tokenHash: string, updatedAt: string): void {
-  execSql(
-    home,
-    `
-    INSERT INTO settings (key, value, updated_at)
-    VALUES ('trigger_token_hash', ${sqlText(tokenHash)}, ${sqlText(updatedAt)})
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_at = excluded.updated_at;
-    `,
-  );
-}
-
-/** 저장된 trigger token hash를 조회합니다. */
-export function findTriggerTokenHash(home: string): string | null {
-  const rows = queryRows(
-    home,
-    `
-    SELECT value
-    FROM settings
-    WHERE key = 'trigger_token_hash'
-    LIMIT 1;
-    `,
-  );
-
-  return rows[0] ? String(rows[0].value) : null;
-}
-
 /** 새 job을 저장합니다. */
 export function insertJob(home: string, job: Job): void {
   execSql(
@@ -234,7 +206,9 @@ export function insertJob(home: string, job: Job): void {
     INSERT INTO jobs (
       id,
       project_id,
-      ref,
+      worktree_path,
+      worktree_id,
+      run_date,
       status,
       failed_step,
       exit_code,
@@ -246,7 +220,9 @@ export function insertJob(home: string, job: Job): void {
     VALUES (
       ${sqlText(job.id)},
       ${sqlText(job.projectId)},
-      ${sqlText(job.ref)},
+      ${sqlText(job.worktreePath)},
+      ${sqlText(job.worktreeId)},
+      ${sqlText(job.runDate)},
       ${sqlText(job.status)},
       ${sqlNullableText(job.failedStep)},
       ${sqlNullableNumber(job.exitCode)},
@@ -329,7 +305,9 @@ export function findJobById(home: string, jobId: string): Job | null {
     SELECT
       id,
       project_id,
-      ref,
+      worktree_path,
+      worktree_id,
+      run_date,
       status,
       failed_step,
       exit_code,
@@ -417,7 +395,9 @@ function baseJobSelectSql(): string {
   SELECT
     jobs.id,
     jobs.project_id,
-    jobs.ref,
+    jobs.worktree_path,
+    jobs.worktree_id,
+    jobs.run_date,
     jobs.status,
     jobs.failed_step,
     jobs.exit_code,
@@ -451,7 +431,7 @@ function rowToProject(row: Row): Project {
   return {
     id: String(row.id),
     name: String(row.name),
-    projectPath: String(row.project_path),
+    projectPaths: JSON.parse(String(row.project_paths_json)) as readonly string[],
     commands: JSON.parse(String(row.commands_json)) as readonly string[],
     createdAt: String(row.created_at),
   };
@@ -467,7 +447,9 @@ function rowToJob(row: Row): Job {
   return {
     id: String(row.id),
     projectId: String(row.project_id),
-    ref: String(row.ref),
+    worktreePath: String(row.worktree_path),
+    worktreeId: String(row.worktree_id),
+    runDate: String(row.run_date),
     status: String(row.status) as JobStatus,
     failedStep: row.failed_step === null ? null : String(row.failed_step),
     exitCode: row.exit_code === null ? null : Number(row.exit_code),

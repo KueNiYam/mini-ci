@@ -9,16 +9,18 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 export type Project = Readonly<{
   id: string;
   name: string;
-  projectPath: string;
+  projectPaths: readonly string[];
   commands: readonly string[];
   createdAt: string;
 }>;
 
-/** 특정 배포 ref에 대해 실행된 CI 작업의 저장 모델입니다. */
+/** 특정 worktree와 실행 날짜에 대해 생성된 CI 작업의 저장 모델입니다. */
 export type Job = Readonly<{
   id: string;
   projectId: string;
-  ref: string;
+  worktreePath: string;
+  worktreeId: string;
+  runDate: string;
   status: JobStatus;
   failedStep: string | null;
   exitCode: number | null;
@@ -40,9 +42,9 @@ export function nowIso(now: Date = new Date()): string {
   return now.toISOString();
 }
 
-/** 사용자가 ref를 주지 않았을 때 저장할 시간 기반 run ref를 만듭니다. */
-export function createRunRef(now: Date = new Date()): string {
-  return `manual-${now.toISOString().replaceAll(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}`;
+/** 사용자가 날짜를 주지 않았을 때 저장할 시간 기반 run date를 만듭니다. */
+export function createRunDate(now: Date = new Date()): string {
+  return now.toISOString().replaceAll(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
 /** 새 도메인 식별자를 UUIDv7 형식으로 생성합니다. */
