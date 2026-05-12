@@ -47,3 +47,4 @@
 - [x] command 실행을 spawn streaming 방식으로 바꾸기
 - [x] 서버 시작 시 stale running job을 interrupted로 복구하기
 - [x] Admin에서 example command와 stored command를 명확히 구분하기
+- [x] GitHub Pages용 docs/index.html과 README 문서 링크 추가하기

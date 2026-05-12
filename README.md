@@ -106,6 +106,10 @@ POST /api/admin/projects
 
 ## Documentation
 
+Published guide: [Mini CI WIKI](https://kueniyam.github.io/mini-ci/)
+
+> 공개 문서: [Mini CI WIKI](https://kueniyam.github.io/mini-ci/)
+
 Operations guide: [docs/WIKI.html](./docs/WIKI.html)
 
 > 운영 가이드: [docs/WIKI.html](./docs/WIKI.html)
