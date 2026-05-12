@@ -1344,8 +1344,13 @@ function adminHtml(projectRoot: string): string {
         background: #fbfcfe;
         padding: 10px;
       }
+      .project-candidate.is-saved {
+        border-color: #b7d8d3;
+        background: #f7fcfb;
+      }
       .worktree-list button {
         display: grid;
+        gap: 7px;
         justify-items: start;
         min-height: 30px;
         border: 1px solid #cbd5e1;
@@ -1358,6 +1363,48 @@ function adminHtml(projectRoot: string): string {
         border-color: #0f766e;
         box-shadow: 0 0 0 3px #d7f1ed;
       }
+      .project-candidate.is-dirty button {
+        border-color: #d97706;
+      }
+      .candidate-top {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .candidate-badges {
+        display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+      .candidate-badge,
+      .candidate-change {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 0.7rem;
+        font-weight: 850;
+        line-height: 1.2;
+      }
+      .candidate-badge-saved {
+        background: #dff4ef;
+        color: #0b5f59;
+      }
+      .candidate-badge-new {
+        background: #eef2f7;
+        color: #475569;
+      }
+      .candidate-change {
+        display: none;
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .project-candidate.is-dirty .candidate-change {
+        display: inline-flex;
+      }
       .directory-name {
         font-weight: 800;
       }
@@ -1365,6 +1412,45 @@ function adminHtml(projectRoot: string): string {
         color: #647084;
         font-family: "SFMono-Regular", Consolas, monospace;
         font-size: 0.76rem;
+      }
+      .candidate-config {
+        display: grid;
+        gap: 8px;
+        width: 100%;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 8px;
+      }
+      .candidate-config span {
+        display: block;
+      }
+      .candidate-config strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #475569;
+        font-size: 0.7rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .form-state {
+        margin: -4px 0 14px;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #647084;
+        padding: 9px 10px;
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+      .form-state.is-saved {
+        background: #e6f4f1;
+        color: #0b5f59;
+      }
+      .form-state.is-dirty {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .form-state.is-new {
+        background: #eef2f7;
+        color: #475569;
       }
       .client-api {
         margin-top: 14px;
@@ -1382,13 +1468,17 @@ function adminHtml(projectRoot: string): string {
       li + li {
         margin-top: 8px;
       }
-      .project-list strong {
-        color: #0b5f59;
+      .empty-state {
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #647084;
+        padding: 14px;
       }
       .project-path-list {
         display: grid;
         gap: 4px;
-        margin-top: 6px;
+        margin-top: 0;
         padding-left: 0;
         list-style: none;
       }
@@ -1399,6 +1489,23 @@ function adminHtml(projectRoot: string): string {
         display: inline-block;
         max-width: 100%;
         background: #f1f5f9;
+        overflow-wrap: anywhere;
+      }
+      .command-list {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+      }
+      .command-list li {
+        margin-top: 0;
+      }
+      .command-list code {
+        display: inline-block;
+        max-width: 100%;
+        background: #eef6f5;
+        color: #0b5f59;
         overflow-wrap: anywhere;
       }
       @media (max-width: 840px) {
@@ -1458,6 +1565,7 @@ function adminHtml(projectRoot: string): string {
             </span>
             <textarea id="project-commands" autocomplete="off" placeholder="npm test"></textarea>
           </label>
+          <p id="form-state" class="form-state">No project selected.</p>
           <button id="save-project" type="button">Save project</button>
           <div class="client-api">
             <h3>Client process API calls</h3>
@@ -1466,16 +1574,6 @@ function adminHtml(projectRoot: string): string {
           </div>
         </section>
         <div class="side-stack">
-          <section class="panel">
-            <div class="panel-header">
-              <span class="step">2</span>
-              <div>
-                <h2>Projects</h2>
-                <p>Registered directories available on the dashboard.</p>
-              </div>
-            </div>
-            <ul id="projects" class="project-list"></ul>
-          </section>
           <section class="panel">
             <h2>Result</h2>
             <pre id="result">Waiting for an action.</pre>
@@ -1486,12 +1584,14 @@ function adminHtml(projectRoot: string): string {
     <script>
       const projectNameEl = document.getElementById("project-name");
       const projectCommandsEl = document.getElementById("project-commands");
+      const formStateEl = document.getElementById("form-state");
       const curlExampleEl = document.getElementById("curl-example");
       const worktreeListEl = document.getElementById("worktree-list");
-      const projectsEl = document.getElementById("projects");
       const resultEl = document.getElementById("result");
       const projectRootPath = ${JSON.stringify(projectRoot)};
       const projectRootLabel = ${JSON.stringify(displayPathForUser(projectRoot))};
+      let savedProjects = [];
+      let directoryGroups = [];
 
       document.getElementById("save-project").addEventListener("click", async () => {
         const name = projectNameEl.value.trim();
@@ -1505,14 +1605,20 @@ function adminHtml(projectRoot: string): string {
         await showResult(response);
         if (response.ok) {
           await loadProjects();
+          await loadProjectRoot();
+          loadProjectIntoForm(name);
         }
       });
 
       projectNameEl.addEventListener("input", () => {
-        clearSelectedCandidate();
+        selectCandidateByName(projectNameEl.value.trim());
+        refreshFormState();
         updateCurlExample();
       });
-      projectCommandsEl.addEventListener("input", updateCurlExample);
+      projectCommandsEl.addEventListener("input", () => {
+        refreshFormState();
+        updateCurlExample();
+      });
 
       document.getElementById("refresh-worktrees").addEventListener("click", loadProjectRoot);
 
@@ -1588,6 +1694,7 @@ function adminHtml(projectRoot: string): string {
       }
 
       async function loadProjectRoot() {
+        await loadProjects();
         const response = await fetch("/api/admin/project-root");
         if (!response.ok) {
           worktreeListEl.innerHTML = "<li>Cannot load directories</li>";
@@ -1597,39 +1704,102 @@ function adminHtml(projectRoot: string): string {
         const info = await response.json();
         worktreeListEl.replaceChildren();
         const entries = Array.isArray(info.entries) ? info.entries : [];
-        if (entries.length === 0) {
+        if (entries.length === 0 && savedProjects.length === 0) {
           const empty = document.createElement("li");
           empty.textContent = "No directories found";
           worktreeListEl.append(empty);
+          refreshFormState();
           return;
         }
 
-        for (const group of groupEntriesByProject(entries)) {
+        directoryGroups = groupEntriesByProject(entries);
+        for (const group of directoryGroups) {
+          const savedProject = savedProjectByName(group.projectName);
           const item = document.createElement("li");
           const button = document.createElement("button");
+          const top = document.createElement("span");
           const name = document.createElement("span");
           const path = document.createElement("span");
+          const badges = document.createElement("span");
+          const badge = document.createElement("span");
+          const dirtyBadge = document.createElement("span");
           item.className = "project-candidate";
+          item.dataset.projectName = group.projectName;
+          if (savedProject) {
+            item.classList.add("is-saved");
+          }
           button.type = "button";
+          top.className = "candidate-top";
           name.className = "directory-name";
           name.textContent = group.projectName;
+          badges.className = "candidate-badges";
+          badge.className = "candidate-badge " + (savedProject ? "candidate-badge-saved" : "candidate-badge-new");
+          badge.textContent = savedProject ? "saved" : "new";
+          dirtyBadge.className = "candidate-change";
+          dirtyBadge.textContent = "unsaved changes";
+          badges.append(badge, dirtyBadge);
+          top.append(name, badges);
           path.className = "directory-path";
-          path.textContent = group.entries.map((entry) => entry.path).join(", ");
-          button.append(name, path);
+          path.textContent = group.entries.length > 0
+            ? group.entries.map((entry) => entry.path).join(", ")
+            : "No matching directory under the base path.";
+          button.append(top, path, renderCandidateConfig(savedProject));
           button.addEventListener("click", () => {
-            projectNameEl.value = group.projectName;
-            clearSelectedCandidate();
-            item.classList.add("is-selected");
-            updateCurlExample();
+            loadProjectIntoForm(group.projectName);
           });
           item.append(button);
           worktreeListEl.append(item);
         }
+        selectCandidateByName(projectNameEl.value.trim());
+        refreshFormState();
+      }
+
+      function renderCandidateConfig(project) {
+        const config = document.createElement("span");
+        config.className = "candidate-config";
+        if (!project) {
+          config.textContent = "No saved settings yet.";
+          return config;
+        }
+
+        const paths = Array.isArray(project.projectPaths) ? project.projectPaths : [];
+        const commands = Array.isArray(project.commands) ? project.commands : [];
+        config.append(
+          labeledInlineList("Stored directories", paths.map(displayProjectPath), "project-path-list"),
+          labeledInlineList("Stored commands", commands, "command-list"),
+        );
+        return config;
+      }
+
+      function labeledInlineList(label, values, className) {
+        const wrapper = document.createElement("span");
+        const title = document.createElement("strong");
+        const list = document.createElement("ul");
+        title.textContent = label;
+        list.className = className;
+        for (const value of values) {
+          const item = document.createElement("li");
+          const code = document.createElement("code");
+          code.textContent = value;
+          item.append(code);
+          list.append(item);
+        }
+        wrapper.append(title, list);
+        return wrapper;
       }
 
       function clearSelectedCandidate() {
         for (const candidate of worktreeListEl.querySelectorAll(".project-candidate")) {
-          candidate.classList.remove("is-selected");
+          candidate.classList.remove("is-selected", "is-dirty");
+        }
+      }
+
+      function selectCandidateByName(projectName) {
+        clearSelectedCandidate();
+        for (const candidate of worktreeListEl.querySelectorAll(".project-candidate")) {
+          if (candidate.dataset.projectName === projectName) {
+            candidate.classList.add("is-selected");
+          }
         }
       }
 
@@ -1640,26 +1810,104 @@ function adminHtml(projectRoot: string): string {
           groups.set(projectName, [...(groups.get(projectName) || []), entry]);
         }
 
+        for (const project of savedProjects) {
+          if (!groups.has(project.name)) {
+            groups.set(project.name, []);
+          }
+        }
+
         return Array.from(groups.entries()).map(([projectName, projectEntries]) => ({
           projectName,
           entries: projectEntries,
-        }));
+        })).sort((left, right) => left.projectName.localeCompare(right.projectName));
       }
 
       async function loadProjects() {
         const projects = await fetch("/api/projects").then((response) => response.json());
-        projectsEl.innerHTML = projects.length === 0
-          ? "<li>No projects</li>"
-          : projects.map((project) => {
-              const paths = Array.isArray(project.projectPaths) ? project.projectPaths : [project.projectPath || ""];
-              return "<li><strong>" + escapeHtml(project.name) + "</strong><br />" +
-                "<ul class='project-path-list'>" +
-                paths.filter(Boolean).map((path) => (
-                  "<li><code>" + escapeHtml(displayProjectPath(path)) + "</code></li>"
-                )).join("") +
-                "</ul>" +
-                "</li>";
-            }).join("");
+        savedProjects = Array.isArray(projects) ? projects : [];
+      }
+
+      function loadProjectIntoForm(projectName) {
+        const savedProject = savedProjectByName(projectName);
+        projectNameEl.value = projectName;
+        if (savedProject) {
+          projectCommandsEl.value = Array.isArray(savedProject.commands) ? savedProject.commands.join("\\n") : "";
+          setResult(JSON.stringify(savedProject, null, 2));
+        } else {
+          setResult("No saved settings for " + projectName + ". Add commands and save it.");
+        }
+        selectCandidateByName(projectName);
+        refreshFormState();
+        updateCurlExample();
+      }
+
+      function refreshFormState() {
+        const name = projectNameEl.value.trim();
+        const savedProject = savedProjectByName(name);
+        formStateEl.className = "form-state";
+        if (!name) {
+          formStateEl.textContent = "No project selected.";
+          return;
+        }
+
+        if (!savedProject) {
+          formStateEl.classList.add("is-new");
+          formStateEl.textContent = "New project. Save it to register this configuration.";
+          markDirtyCandidate(name, false);
+          return;
+        }
+
+        const dirty = hasUnsavedChanges(savedProject);
+        formStateEl.classList.add(dirty ? "is-dirty" : "is-saved");
+        formStateEl.textContent = dirty
+          ? "Unsaved changes. Save project to update stored directories or commands."
+          : "Saved settings loaded.";
+        markDirtyCandidate(name, dirty);
+      }
+
+      function markDirtyCandidate(projectName, dirty) {
+        for (const candidate of worktreeListEl.querySelectorAll(".project-candidate")) {
+          if (candidate.dataset.projectName === projectName && dirty) {
+            candidate.classList.add("is-dirty");
+          } else {
+            candidate.classList.remove("is-dirty");
+          }
+        }
+      }
+
+      function hasUnsavedChanges(project) {
+        const savedPaths = Array.isArray(project.projectPaths)
+          ? project.projectPaths.map(normalizeProjectPath).sort()
+          : [];
+        const currentPaths = currentProjectPaths(project.name).sort();
+        return !sameValues(commandValues(), Array.isArray(project.commands) ? project.commands : [])
+          || !sameValues(currentPaths, savedPaths);
+      }
+
+      function currentProjectPaths(projectName) {
+        const group = directoryGroups.find((item) => item.projectName === projectName);
+        return group ? group.entries.map((entry) => normalizeProjectPath(entry.path)) : [];
+      }
+
+      function sameValues(left, right) {
+        if (left.length !== right.length) {
+          return false;
+        }
+
+        return left.every((value, index) => value === right[index]);
+      }
+
+      function savedProjectByName(name) {
+        return savedProjects.find((project) => project.name === name) || null;
+      }
+
+      function normalizeProjectPath(path) {
+        const value = String(path);
+        if (value.startsWith(projectRootPath + "/")) {
+          return value.slice(projectRootPath.length + 1);
+        }
+
+        return value;
       }
 
       function displayProjectPath(path) {
@@ -1684,9 +1932,13 @@ function adminHtml(projectRoot: string): string {
           .replaceAll("'", "&#39;");
       }
 
+      function escapeAttribute(value) {
+        return escapeHtml(value).replaceAll(String.fromCharCode(96), "&#96;");
+      }
+
       loadProjectRoot();
-      loadProjects();
       updateCurlExample();
+      refreshFormState();
     </script>
   </body>
 </html>`;
