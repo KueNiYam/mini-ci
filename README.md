@@ -67,7 +67,7 @@ COMMANDS='["npm test"]'
 
 curl -X POST "${MINI_CI_URL}/api/admin/projects" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"${PROJECT_NAME}\",\"paths\":[\"${WORKTREE_PATH}\"],\"commands\":${COMMANDS}}"
+  -d "{\"name\":\"${PROJECT_NAME}\",\"commands\":${COMMANDS}}"
 
 curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \

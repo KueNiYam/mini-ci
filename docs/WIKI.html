@@ -3,573 +3,506 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mini CI Wiki</title>
+    <title>Mini CI Operations Wiki</title>
     <style>
       :root {
         color-scheme: light;
-        --bg: #f7f8fa;
+        --bg: #f2f5f7;
         --paper: #ffffff;
-        --text: #1d2430;
-        --muted: #647084;
-        --line: #d9dee8;
+        --paper-soft: #f8fafc;
+        --text: #17202e;
+        --muted: #617089;
+        --line: #d8e0ea;
         --accent: #0f766e;
-        --accent-soft: #e6f4f1;
-        --code-bg: #101828;
-        --code-text: #eef2f7;
+        --accent-strong: #0b5f59;
+        --accent-soft: #e5f4f1;
+        --warn-soft: #fff7ed;
+        --warn: #9a3412;
+        --code-bg: #111827;
+        --code-text: #edf2f7;
       }
 
       * {
         box-sizing: border-box;
       }
 
+      html {
+        scroll-behavior: smooth;
+      }
+
       body {
         margin: 0;
         background: var(--bg);
         color: var(--text);
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.65;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.62;
       }
 
       main {
-        max-width: 920px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 48px 24px 72px;
+        padding: 40px 24px 72px;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 22px;
+        align-items: start;
+      }
+
+      article,
+      nav {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--paper);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
       }
 
       article {
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 44px;
+        overflow: hidden;
+      }
+
+      nav {
+        position: sticky;
+        top: 18px;
+        padding: 18px;
+      }
+
+      nav strong {
+        display: block;
+        margin-bottom: 10px;
+        color: var(--accent-strong);
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      nav a {
+        display: block;
+        border-radius: 6px;
+        color: var(--muted);
+        padding: 7px 8px;
+        text-decoration: none;
+      }
+
+      nav a:hover {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        padding: 46px 44px 34px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 850;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
       }
 
       h1,
-      h2 {
-        line-height: 1.25;
+      h2,
+      h3,
+      p {
+        margin-top: 0;
       }
 
       h1 {
-        margin: 0 0 12px;
-        font-size: 2.25rem;
+        margin-bottom: 12px;
+        font-size: clamp(2.1rem, 5vw, 4rem);
+        font-weight: 850;
+        line-height: 1.02;
       }
 
       h2 {
-        margin: 40px 0 14px;
-        padding-top: 26px;
-        border-top: 1px solid var(--line);
-        font-size: 1.35rem;
+        margin: 0 0 14px;
+        font-size: 1.55rem;
+        line-height: 1.18;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 1.02rem;
+        line-height: 1.25;
       }
 
       p {
-        margin: 0 0 12px;
+        margin-bottom: 12px;
+      }
+
+      .lead {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1.08rem;
+      }
+
+      .section {
+        padding: 34px 44px;
+      }
+
+      .section + .section {
+        border-top: 1px solid var(--line);
       }
 
       blockquote {
-        margin: 0 0 18px;
+        margin: 14px 0 0;
         border-left: 4px solid var(--accent);
         background: var(--accent-soft);
-        color: #0b5f59;
-        padding: 10px 14px;
-      }
-
-      ul {
-        margin: 8px 0 18px;
-        padding-left: 24px;
+        color: var(--accent-strong);
+        padding: 12px 16px;
       }
 
       code {
-        padding: 0.12rem 0.32rem;
         border-radius: 4px;
         background: var(--accent-soft);
-        color: #0b5f59;
-        font-family: "SFMono-Regular", Consolas, monospace;
+        color: var(--accent-strong);
+        padding: 0.12rem 0.34rem;
+        font-family: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
         font-size: 0.92em;
       }
 
       pre {
-        margin: 10px 0 18px;
+        max-width: 100%;
+        margin: 14px 0 16px;
         overflow-x: auto;
         border-radius: 8px;
         background: var(--code-bg);
         color: var(--code-text);
         padding: 16px;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
         line-height: 1.55;
       }
 
       pre code {
-        padding: 0;
         background: transparent;
         color: inherit;
-        font-size: inherit;
+        padding: 0;
       }
 
-      .lead {
-        color: var(--muted);
-        font-size: 1.04rem;
-      }
-
-      .chart {
-        width: min(1120px, calc(100vw - 48px));
-        margin: 24px 0 28px 50%;
-        overflow: hidden;
-        transform: translateX(-50%);
-        border-radius: 8px;
-        background: var(--bg);
-        padding: 18px;
-      }
-
-      .chart svg {
-        display: block;
-        width: 100%;
-        height: auto;
-      }
-
-      .chart-title {
-        fill: var(--text);
-        font-size: 18px;
-        font-weight: 800;
-      }
-
-      .chart-lane {
-        fill: #ffffff;
-        stroke: var(--line);
-        stroke-width: 1.5;
-      }
-
-      .chart-node {
-        fill: #ffffff;
-        stroke: #b8c2d3;
-        stroke-width: 1.5;
-      }
-
-      .chart-node-accent {
-        fill: var(--accent-soft);
-        stroke: var(--accent);
-      }
-
-      .chart-node-title {
-        fill: var(--text);
-        font-size: 14px;
-        font-weight: 800;
-      }
-
-      .chart-node-caption,
-      .chart-lane-title {
-        fill: var(--muted);
-        font-size: 12px;
-      }
-
-      .chart-badge {
-        fill: var(--accent);
-      }
-
-      .chart-badge-text {
-        fill: #ffffff;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .chart-arrow {
-        fill: none;
-        stroke: var(--accent);
-        stroke-width: 2.5;
-      }
-
-      .chart-note {
-        fill: #0b5f59;
-        font-size: 13px;
-        font-weight: 800;
-      }
-
-      .pipeline {
-        margin: 24px 0 28px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: #fbfcfe;
-        padding: 18px;
-      }
-
-      .pipeline-title {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 18px;
-      }
-
-      .pipeline-title strong {
-        font-size: 1rem;
-      }
-
-      .pipeline-title span {
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .pipeline-track {
-        position: relative;
+      .summary-grid,
+      .state-grid,
+      .trouble-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 12px;
       }
 
-      .pipeline-track::before {
-        position: absolute;
-        top: 28px;
-        right: 10%;
-        left: 10%;
-        height: 3px;
-        border-radius: 999px;
-        background: #9fd7cf;
-        content: "";
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 20px;
       }
 
-      .pipeline-stage {
-        position: relative;
-        z-index: 1;
-        display: grid;
-        gap: 10px;
-        min-height: 174px;
+      .summary-card,
+      .state-card,
+      .trouble-card,
+      .flow-step {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: white;
-        padding: 14px;
+        background: var(--paper-soft);
+        padding: 16px;
       }
 
-      .pipeline-stage:not(:last-child)::after {
-        position: absolute;
-        top: 22px;
-        right: -13px;
-        z-index: 2;
-        width: 18px;
-        height: 18px;
-        border-top: 3px solid var(--accent);
-        border-right: 3px solid var(--accent);
-        background: #fbfcfe;
-        transform: rotate(45deg);
-        content: "";
-      }
-
-      .pipeline-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 999px;
-        background: var(--accent);
-        color: white;
-        font-weight: 800;
-      }
-
-      .pipeline-stage h3 {
-        margin: 0;
-        font-size: 1rem;
-      }
-
-      .pipeline-stage p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .pipeline-owner {
-        align-self: end;
-        display: inline-flex;
-        width: fit-content;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        color: #0b5f59;
-        padding: 3px 9px;
-        font-size: 0.78rem;
-        font-weight: 800;
-      }
-
-      .sequence {
-        display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 10px;
-        margin: 18px 0 26px;
-      }
-
-      .sequence-item {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: white;
-        padding: 12px;
-      }
-
-      .sequence-item strong {
-        display: block;
-        margin-bottom: 4px;
-      }
-
-      .sequence-item span {
-        color: var(--muted);
-        font-size: 0.86rem;
-      }
-
-      .handoff {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        border-top: 1px solid var(--line);
-        background: var(--accent-soft);
-        padding: 14px 18px;
-        color: #0b5f59;
-        font-weight: 800;
-      }
-
-      .handoff::before,
-      .handoff::after {
-        flex: 1;
-        height: 2px;
-        background: #9fd7cf;
-        content: "";
-      }
-
-      .state-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        margin: 18px 0 26px;
-      }
-
-      .state-card {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 14px;
-        background: #fbfcfe;
-      }
-
-      .state-card strong {
+      .summary-card strong,
+      .state-card strong,
+      .trouble-card strong {
         display: block;
         margin-bottom: 6px;
       }
 
-      .state-card span {
+      .summary-card span,
+      .state-card span,
+      .trouble-card span,
+      .flow-step p {
         color: var(--muted);
-        font-size: 0.92rem;
       }
 
-      @media (max-width: 720px) {
-        article {
-          padding: 28px;
-        }
+      .flow-map {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        margin: 20px 0;
+      }
 
-        .chart {
-          width: calc(100vw - 32px);
-          padding: 12px;
-        }
+      .flow-lane {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--paper-soft);
+        padding: 16px;
+      }
 
-        .pipeline-title {
-          display: block;
-        }
+      .flow-lane h3 {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
 
-        .pipeline-track,
-        .sequence,
-        .state-grid {
+      .flow-steps {
+        display: grid;
+        gap: 10px;
+      }
+
+      .flow-step {
+        position: relative;
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 12px;
+        background: var(--paper);
+      }
+
+      .flow-step.is-handoff {
+        border-color: #93d4ca;
+        background: var(--accent-soft);
+      }
+
+      .step-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: white;
+        font-weight: 850;
+      }
+
+      .flow-step p {
+        margin: 0;
+      }
+
+      .handoff-note {
+        margin: 18px 0 0;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        padding: 14px 16px;
+        font-weight: 750;
+      }
+
+      .state-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        margin-top: 18px;
+      }
+
+      .state-card {
+        background: var(--paper);
+      }
+
+      .state-card code {
+        display: inline-block;
+        margin-bottom: 8px;
+      }
+
+      .trouble-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 18px;
+      }
+
+      .trouble-card {
+        background: var(--warn-soft);
+      }
+
+      .trouble-card strong {
+        color: var(--warn);
+      }
+
+      .checklist {
+        margin: 16px 0 0;
+        padding-left: 22px;
+      }
+
+      .checklist li + li {
+        margin-top: 8px;
+      }
+
+      @media (max-width: 900px) {
+        .shell {
           grid-template-columns: 1fr;
         }
 
-        .pipeline-track::before,
-        .pipeline-stage::after {
-          display: none;
+        nav {
+          position: static;
+          order: -1;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+
+        nav strong {
+          flex-basis: 100%;
+          margin-bottom: 4px;
+        }
+
+        nav a {
+          display: inline-flex;
+        }
+
+        .summary-grid,
+        .flow-map,
+        .state-grid,
+        .trouble-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 18px 12px 40px;
+        }
+
+        .hero,
+        .section {
+          padding: 26px 18px;
+        }
+
+        pre {
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <article>
-        <h1>Mini CI Wiki</h1>
-        <p class="lead">Mini CI runs checks against a directory that has already been deployed to the CI machine.</p>
-        <blockquote>Mini CI는 CI 머신에 이미 배포된 디렉터리를 대상으로 검증 command를 실행합니다.</blockquote>
+      <div class="shell">
+        <article>
+          <header class="hero">
+            <p class="eyebrow">Mini CI</p>
+            <h1>Operations Wiki</h1>
+            <p class="lead">Mini CI runs configured shell commands against directories that are already deployed on the CI machine.</p>
+            <blockquote>Mini CI는 CI 머신에 이미 배포된 디렉터리에서 설정된 shell command를 실행합니다.</blockquote>
+          </header>
 
-        <h2>Concept</h2>
-        <p>The deployment step is outside Mini CI. After deployment finishes, call Mini CI over HTTP to create a run.</p>
-        <blockquote>배포 단계는 Mini CI 밖에서 처리합니다. 배포가 끝난 뒤 HTTP로 Mini CI를 호출해 run을 생성합니다.</blockquote>
-        <p>This keeps copying, syncing, source selection, and release promotion policies separate from CI execution.</p>
-        <blockquote>파일 복사, 동기화, 소스 선택, release promotion 정책을 CI 실행과 분리합니다.</blockquote>
-
-        <div class="chart" aria-label="Mini CI flow chart">
-          <svg viewBox="0 0 1080 430" role="img" aria-labelledby="flow-title flow-desc">
-            <title id="flow-title">Mini CI flow chart</title>
-            <desc id="flow-desc">Deployment prepares a directory, sends an HTTP trigger, Mini CI runs commands, stores status and logs, then the dashboard shows the result.</desc>
-            <defs>
-              <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-                <path d="M2,2 L10,6 L2,10 Z" fill="#0f766e"></path>
-              </marker>
-            </defs>
-
-            <text x="24" y="34" class="chart-title">Flow chart</text>
-            <text x="24" y="56" class="chart-lane-title">The HTTP trigger is the exact handoff between deployment and CI execution.</text>
-
-            <rect x="24" y="82" width="470" height="274" rx="8" class="chart-lane"></rect>
-            <text x="44" y="110" class="chart-lane-title">Deployment side</text>
-
-            <rect x="590" y="82" width="466" height="274" rx="8" class="chart-lane"></rect>
-            <text x="610" y="110" class="chart-lane-title">Mini CI side</text>
-
-            <rect x="58" y="132" width="174" height="82" rx="8" class="chart-node"></rect>
-            <circle cx="82" cy="156" r="14" class="chart-badge"></circle>
-            <text x="78" y="160" class="chart-badge-text">1</text>
-            <text x="102" y="156" class="chart-node-title">Source ready</text>
-            <text x="102" y="180" class="chart-node-caption">Choose version</text>
-
-            <rect x="272" y="132" width="178" height="82" rx="8" class="chart-node"></rect>
-            <circle cx="296" cy="156" r="14" class="chart-badge"></circle>
-            <text x="292" y="160" class="chart-badge-text">2</text>
-            <text x="316" y="156" class="chart-node-title">Deploy dir</text>
-            <text x="316" y="180" class="chart-node-caption">Copy to CI machine</text>
-
-            <rect x="474" y="196" width="176" height="82" rx="8" class="chart-node-accent"></rect>
-            <circle cx="498" cy="220" r="14" class="chart-badge"></circle>
-            <text x="494" y="224" class="chart-badge-text">3</text>
-            <text x="518" y="220" class="chart-node-title">HTTP trigger</text>
-            <text x="518" y="244" class="chart-node-caption">Project + worktree + date</text>
-
-            <rect x="674" y="132" width="176" height="82" rx="8" class="chart-node"></rect>
-            <circle cx="698" cy="156" r="14" class="chart-badge"></circle>
-            <text x="694" y="160" class="chart-badge-text">4</text>
-            <text x="718" y="156" class="chart-node-title">Run commands</text>
-            <text x="718" y="180" class="chart-node-caption">Inside deployed dir</text>
-
-            <rect x="884" y="132" width="148" height="82" rx="8" class="chart-node"></rect>
-            <circle cx="908" cy="156" r="14" class="chart-badge"></circle>
-            <text x="904" y="160" class="chart-badge-text">5</text>
-            <text x="928" y="156" class="chart-node-title">Save result</text>
-            <text x="928" y="180" class="chart-node-caption">Status and logs</text>
-
-            <rect x="764" y="268" width="190" height="58" rx="8" class="chart-node-accent"></rect>
-            <text x="794" y="294" class="chart-node-title">Dashboard</text>
-            <text x="794" y="314" class="chart-node-caption">Inspect and rerun</text>
-
-            <path d="M232 173 H266" class="chart-arrow" marker-end="url(#arrow)"></path>
-            <path d="M450 173 C474 174 466 224 470 234" class="chart-arrow" marker-end="url(#arrow)"></path>
-            <path d="M650 237 C676 234 660 176 668 174" class="chart-arrow" marker-end="url(#arrow)"></path>
-            <path d="M850 173 H878" class="chart-arrow" marker-end="url(#arrow)"></path>
-            <path d="M958 214 C958 250 920 260 890 268" class="chart-arrow" marker-end="url(#arrow)"></path>
-
-            <line x1="562" y1="88" x2="562" y2="350" stroke="#9fd7cf" stroke-width="2" stroke-dasharray="8 7"></line>
-            <text x="494" y="374" class="chart-note">handoff boundary</text>
-          </svg>
-        </div>
-        <blockquote>이 flow chart는 배포 쪽 책임과 Mini CI 쪽 책임이 HTTP trigger에서 분리된다는 점을 보여줍니다.</blockquote>
-
-        <div class="pipeline" aria-label="Mini CI execution flow">
-          <div class="pipeline-title">
-            <strong>End-to-end flow</strong>
-            <span>Deploy first, then trigger Mini CI.</span>
-          </div>
-          <div class="pipeline-track">
-            <div class="pipeline-stage">
-              <span class="pipeline-badge">1</span>
-              <div>
-                <h3>Source is ready</h3>
-                <p>Select the version that should be tested.</p>
+          <section id="what" class="section">
+            <h2>What Mini CI Does</h2>
+            <p>Mini CI is the execution and visibility layer. It does not choose source revisions, clone repositories, copy files, or promote releases.</p>
+            <blockquote>Mini CI는 실행과 가시성 계층입니다. 소스 revision 선택, repository clone, 파일 복사, release promotion은 담당하지 않습니다.</blockquote>
+            <div class="summary-grid">
+              <div class="summary-card">
+                <strong>Owns CI execution</strong>
+                <span>Project registration, run creation, command execution, logs, status, and rerun actions.</span>
               </div>
-              <span class="pipeline-owner">outside Mini CI</span>
-            </div>
-            <div class="pipeline-stage">
-              <span class="pipeline-badge">2</span>
-              <div>
-                <h3>Directory is deployed</h3>
-                <p>Copy files to the CI machine with your own deploy process.</p>
+              <div class="summary-card">
+                <strong>Leaves deployment outside</strong>
+                <span>Your deploy process prepares the directory, then calls Mini CI over HTTP.</span>
               </div>
-              <span class="pipeline-owner">outside Mini CI</span>
             </div>
-            <div class="pipeline-stage">
-              <span class="pipeline-badge">3</span>
-              <div>
-                <h3>HTTP trigger</h3>
-                <p>Send project name, selected worktree, and run date.</p>
-              </div>
-              <span class="pipeline-owner">handoff</span>
-            </div>
-            <div class="pipeline-stage">
-              <span class="pipeline-badge">4</span>
-              <div>
-                <h3>Commands run</h3>
-                <p>Mini CI executes configured commands inside the deployed directory.</p>
-              </div>
-              <span class="pipeline-owner">Mini CI</span>
-            </div>
-            <div class="pipeline-stage">
-              <span class="pipeline-badge">5</span>
-              <div>
-                <h3>Result appears</h3>
-                <p>Status, logs, and rerun actions show in the dashboard.</p>
-              </div>
-              <span class="pipeline-owner">Mini CI</span>
-            </div>
-          </div>
-          <div class="handoff">HTTP trigger is the handoff point</div>
-        </div>
-        <blockquote>HTTP trigger가 배포 흐름과 Mini CI 실행 흐름을 이어주는 경계입니다.</blockquote>
+          </section>
 
-        <div class="sequence" aria-label="Mini CI detailed order">
-          <div class="sequence-item">
-            <strong>1. Deploy</strong>
-            <span>Files land in the target directory.</span>
-          </div>
-          <div class="sequence-item">
-            <strong>2. Trigger</strong>
-            <span>The API receives the run request.</span>
-          </div>
-          <div class="sequence-item">
-            <strong>3. Resolve</strong>
-            <span>Mini CI finds the project directory.</span>
-          </div>
-          <div class="sequence-item">
-            <strong>4. Execute</strong>
-            <span>Commands run in order.</span>
-          </div>
-          <div class="sequence-item">
-            <strong>5. Record</strong>
-            <span>Status and logs are saved.</span>
-          </div>
-          <div class="sequence-item">
-            <strong>6. Inspect</strong>
-            <span>The dashboard shows the run.</span>
-          </div>
-        </div>
-        <blockquote>세부 순서는 deploy, trigger, resolve, execute, record, inspect 순서로 이해하면 됩니다.</blockquote>
+          <section id="flow" class="section">
+            <h2>Operating Flow</h2>
+            <p>The HTTP trigger is the boundary between deployment work and CI execution.</p>
+            <blockquote>HTTP trigger는 배포 작업과 CI 실행을 나누는 경계입니다.</blockquote>
+            <div class="flow-map" aria-label="Mini CI operating flow">
+              <div class="flow-lane">
+                <h3>Deployment side</h3>
+                <div class="flow-steps">
+                  <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <div>
+                      <h3>Source is ready</h3>
+                      <p>Select the version or worktree that should be tested.</p>
+                    </div>
+                  </div>
+                  <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <div>
+                      <h3>Directory is deployed</h3>
+                      <p>Copy files to the CI machine under the project root.</p>
+                    </div>
+                  </div>
+                  <div class="flow-step is-handoff">
+                    <span class="step-number">3</span>
+                    <div>
+                      <h3>HTTP trigger</h3>
+                      <p>Send project name, worktree path, and run date to Mini CI.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="flow-lane">
+                <h3>Mini CI side</h3>
+                <div class="flow-steps">
+                  <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <div>
+                      <h3>Job is queued</h3>
+                      <p>The API returns <code>202 Accepted</code> with <code>jobId</code>.</p>
+                    </div>
+                  </div>
+                  <div class="flow-step">
+                    <span class="step-number">5</span>
+                    <div>
+                      <h3>Commands run</h3>
+                      <p>Background execution streams stdout and stderr into the job log.</p>
+                    </div>
+                  </div>
+                  <div class="flow-step">
+                    <span class="step-number">6</span>
+                    <div>
+                      <h3>Result is visible</h3>
+                      <p>Dashboard shows status, logs, history, and rerun actions.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="handoff-note">Deployment can be changed independently as long as it prepares the directory and calls the Run API.</p>
+            <blockquote>디렉터리를 준비하고 Run API를 호출하기만 하면, 배포 방식은 Mini CI와 독립적으로 바꿀 수 있습니다.</blockquote>
+          </section>
 
-        <div class="state-grid" aria-label="Mini CI state model">
-          <div class="state-card">
-            <strong>Project</strong>
-            <span>Name, directory path, and command list.</span>
-          </div>
-          <div class="state-card">
-            <strong>Run</strong>
-            <span>Project, worktree, run date, status, exit code, job ID, and timestamps.</span>
-          </div>
-          <div class="state-card">
-            <strong>Log</strong>
-            <span>Streaming stdout, stderr, and failure details.</span>
-          </div>
-        </div>
-        <blockquote>Mini CI가 저장하는 핵심 상태는 project, run, log 세 가지입니다.</blockquote>
+          <section id="lifecycle" class="section">
+            <h2>Run Lifecycle</h2>
+            <p>A run is created first, then executed in the background. Logs can be inspected while the job is still running.</p>
+            <blockquote>run은 먼저 생성되고 background에서 실행됩니다. job이 실행 중이어도 로그를 확인할 수 있습니다.</blockquote>
+            <div class="state-grid">
+              <div class="state-card">
+                <code>queued</code>
+                <span>Job was created and is waiting to start.</span>
+              </div>
+              <div class="state-card">
+                <code>running</code>
+                <span>Commands are executing and logs are being written.</span>
+              </div>
+              <div class="state-card">
+                <code>success</code>
+                <span>All configured commands exited with code 0.</span>
+              </div>
+              <div class="state-card">
+                <code>failed</code>
+                <span>A command failed and the failed step was recorded.</span>
+              </div>
+              <div class="state-card">
+                <code>interrupted</code>
+                <span>The server restarted while a job was marked running.</span>
+              </div>
+            </div>
+          </section>
 
-        <h2>Start The Server</h2>
-        <p>Start the server on the CI machine. If you expose it on a LAN address, anyone who can reach it can register projects and trigger runs.</p>
-        <blockquote>CI 머신에서 서버를 시작합니다. LAN 주소로 열면 접근 가능한 사용자는 누구나 프로젝트 등록과 run 실행을 할 수 있습니다.</blockquote>
-        <p>Project paths are discovered by project name under <code>~/.codex/worktrees</code> by default. Set <code>MINI_CI_PROJECT_ROOT</code> when another base directory is needed.</p>
-        <blockquote>프로젝트 경로는 기본적으로 <code>~/.codex/worktrees</code> 아래에서 프로젝트명으로 자동 탐지합니다. 다른 기준 디렉터리가 필요하면 <code>MINI_CI_PROJECT_ROOT</code>를 설정합니다.</blockquote>
-        <pre><code>MINI_CI_PORT="&lt;port&gt;"
+          <section id="setup" class="section">
+            <h2>Start The Server</h2>
+            <p>Start the server on the CI machine. Network access is the security boundary because Mini CI does not include built-in authentication.</p>
+            <blockquote>CI 머신에서 서버를 시작합니다. Mini CI는 내장 인증이 없으므로 네트워크 접근 가능 여부가 보안 경계입니다.</blockquote>
+            <pre><code>MINI_CI_PORT="&lt;port&gt;"
 bin/mini-ci start --host 0.0.0.0 --port "${MINI_CI_PORT}"</code></pre>
+            <p>Project paths are discovered by project name under <code>~/.codex/worktrees</code> by default. Set <code>MINI_CI_PROJECT_ROOT</code> to use a different base directory.</p>
+            <blockquote>프로젝트 경로는 기본적으로 <code>~/.codex/worktrees</code> 아래에서 프로젝트명으로 자동 탐지합니다. 다른 기준 디렉터리를 쓰려면 <code>MINI_CI_PROJECT_ROOT</code>를 설정합니다.</blockquote>
+          </section>
 
-        <h2>Register A Project</h2>
-        <p>Open <code>/admin</code>, choose a project, and save it once. The client deployment process should refresh the project and start a run after it prepares the worktree directories.</p>
-        <blockquote><code>/admin</code>을 열고 프로젝트를 선택해 한 번 저장합니다. 이후 클라이언트 배포 프로세스는 worktree 디렉터리를 준비한 뒤 프로젝트를 갱신하고 run을 시작해야 합니다.</blockquote>
-        <p>Use these calls from the client process after deployment finishes.</p>
-        <blockquote>배포가 끝난 뒤 클라이언트 프로세스에서 아래 호출을 사용합니다.</blockquote>
-        <p><code>WORKTREE_PATH</code> selects the worktree to run. <code>RUN_DATE</code> becomes the date row on the dashboard.</p>
-        <blockquote><code>WORKTREE_PATH</code>는 실행할 worktree를 선택합니다. <code>RUN_DATE</code>는 대시보드의 날짜 행으로 표시됩니다.</blockquote>
-<pre><code>MINI_CI_URL="http://&lt;mini-ci-host&gt;:&lt;port&gt;"
+          <section id="client-api" class="section">
+            <h2>Client Process API</h2>
+            <p>After deployment finishes, the client process should refresh project settings by project name and then start a run for the selected worktree.</p>
+            <blockquote>배포가 끝나면 클라이언트 프로세스가 프로젝트명으로 설정을 갱신하고 선택한 worktree에 대해 run을 시작해야 합니다.</blockquote>
+            <pre><code>MINI_CI_URL="http://&lt;mini-ci-host&gt;:&lt;port&gt;"
 PROJECT_NAME="&lt;project-name&gt;"
 WORKTREE_ID="&lt;worktree-id&gt;"
 WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
@@ -578,28 +511,59 @@ COMMANDS='["npm test"]'
 
 curl -X POST "${MINI_CI_URL}/api/admin/projects" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"${PROJECT_NAME}\",\"paths\":[\"${WORKTREE_PATH}\"],\"commands\":${COMMANDS}}"
+  -d "{\"name\":\"${PROJECT_NAME}\",\"commands\":${COMMANDS}}"
 
 curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
-        <p>The run API returns <code>202 Accepted</code> with <code>jobId</code>. Mini CI executes the command in the background and streams stdout/stderr into the job log.</p>
-        <blockquote>run API는 <code>202 Accepted</code>와 <code>jobId</code>를 반환합니다. Mini CI는 command를 background에서 실행하고 stdout/stderr를 job log에 streaming으로 기록합니다.</blockquote>
+            <p>The Admin API discovers matching directories under the project root. The Run API returns <code>202 Accepted</code> with <code>jobId</code>. Use <code>GET /api/jobs/:id</code> or the Dashboard to inspect status.</p>
+            <blockquote>Admin API는 프로젝트 기준 디렉터리 아래에서 일치하는 디렉터리를 자동 탐지합니다. Run API는 <code>202 Accepted</code>와 <code>jobId</code>를 반환합니다. 상태는 <code>GET /api/jobs/:id</code> 또는 Dashboard에서 확인합니다.</blockquote>
+          </section>
 
-        <h2>Dashboard</h2>
-        <p>The dashboard groups history by project name and worktree ID. Each run appears as a date row.</p>
-        <blockquote>대시보드는 실행 이력을 project name과 worktree ID 기준으로 묶고, 각 run을 날짜 행으로 표시합니다.</blockquote>
-        <p>Job details show project, worktree ID, worktree path, run date, status, failed step, exit code, creation time, and logs. Status can be <code>queued</code>, <code>running</code>, <code>success</code>, <code>failed</code>, or <code>interrupted</code>.</p>
-        <blockquote>job 상세에는 프로젝트, worktree ID, worktree path, run date, 상태, 실패 step, exit code, 생성 시각, 로그가 표시됩니다. 상태는 <code>queued</code>, <code>running</code>, <code>success</code>, <code>failed</code>, <code>interrupted</code> 중 하나입니다.</blockquote>
+          <section id="dashboard" class="section">
+            <h2>Dashboard</h2>
+            <p>The dashboard is the main inspection surface. History is grouped by project and worktree, and each run appears as one date row.</p>
+            <blockquote>Dashboard는 주요 확인 화면입니다. 실행 이력은 project와 worktree 기준으로 묶이고, 각 run은 하나의 날짜 행으로 표시됩니다.</blockquote>
+            <ul class="checklist">
+              <li>Select a run row to see the selected run summary.</li>
+              <li>Open run detail to inspect the console log without losing the history view.</li>
+              <li>Use rerun only after confirming the target worktree and command list.</li>
+            </ul>
+            <blockquote>run 행을 선택해 요약을 보고, 상세 페이지에서 console log를 확인하고, rerun 전에는 실행 대상과 command를 확인합니다.</blockquote>
+          </section>
 
-        <h2>Troubleshooting</h2>
-        <ul>
-          <li><code>404 project not found</code>: check the project name registered from <code>/admin</code>.</li>
-          <li>Command failures are recorded in the job log and keep the job status as <code>failed</code>.</li>
-          <li><code>interrupted</code>: the server restarted while a job was marked as <code>running</code>.</li>
-        </ul>
-        <blockquote>문제가 생기면 프로젝트 이름과 job 로그의 실패 command를 먼저 확인합니다. <code>interrupted</code>는 서버 재시작 중 끊긴 run을 뜻합니다.</blockquote>
-      </article>
+          <section id="troubleshooting" class="section">
+            <h2>Troubleshooting</h2>
+            <p>Start with the project name, worktree path, job status, and log output.</p>
+            <blockquote>문제가 생기면 project name, worktree path, job status, log output부터 확인합니다.</blockquote>
+            <div class="trouble-grid">
+              <div class="trouble-card">
+                <strong><code>404 project not found</code></strong>
+                <span>The project was not registered or the project name does not match.</span>
+              </div>
+              <div class="trouble-card">
+                <strong><code>400 bad worktree path</code></strong>
+                <span>The requested worktree path is outside the project root or not registered.</span>
+              </div>
+              <div class="trouble-card">
+                <strong><code>interrupted</code></strong>
+                <span>The server restarted while the job was marked as running.</span>
+              </div>
+            </div>
+          </section>
+        </article>
+
+        <nav aria-label="Wiki navigation">
+          <strong>On this page</strong>
+          <a href="#what">What Mini CI Does</a>
+          <a href="#flow">Operating Flow</a>
+          <a href="#lifecycle">Run Lifecycle</a>
+          <a href="#setup">Start The Server</a>
+          <a href="#client-api">Client Process API</a>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </nav>
+      </div>
     </main>
   </body>
 </html>
