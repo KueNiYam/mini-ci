@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini CI 운영 Runbook</title>
+    <link rel="stylesheet" href="./wiki.css" />
+  </head>
+  <body>
+    <main>
+      <div class="page-grid">
+        <article class="content">
+          <header class="hero">
+            <div class="lang-switch" aria-label="Language">
+              <a href="./WIKI.html">English</a>
+              <span class="active">한국어</span>
+            </div>
+            <p class="eyebrow">Mini CI 운영 Runbook</p>
+            <h1>배포 프로세스가 디렉터리를 준비한 뒤 검증을 실행합니다.</h1>
+            <p class="lead">Mini CI는 로컬 self-hosted CI를 위한 가벼운 실행 계층입니다. HTTP run 요청을 받고, 준비된 디렉터리에서 설정된 shell command를 실행하며, 로그를 streaming으로 저장하고 Dashboard에 결과를 보여줍니다.</p>
+            <div class="mission-grid">
+              <div class="mission-card">
+                <strong>무엇을 실행하나</strong>
+                <span>프로젝트에 등록한 command를 실행합니다.</span>
+              </div>
+              <div class="mission-card">
+                <strong>어디에서 실행하나</strong>
+                <span>이미 배포된 worktree 디렉터리 안에서 실행합니다.</span>
+              </div>
+              <div class="mission-card">
+                <strong>무엇을 보여주나</strong>
+                <span>상태, 이력, console log, rerun control을 보여줍니다.</span>
+              </div>
+            </div>
+          </header>
+
+          <section id="purpose" class="band">
+            <p class="section-kicker">목적</p>
+            <h2>프로젝트를 Mini CI에 연결할 때 이 WIKI를 사용합니다.</h2>
+            <p>이 문서는 운영 runbook입니다. 처음 보는 사용자가 모델을 이해하고, 서버를 시작하고, 프로젝트를 등록하고, 클라이언트 프로세스에서 run을 호출하고, Dashboard를 읽을 수 있게 하는 것이 목적입니다.</p>
+            <div class="concept-grid">
+              <div class="concept-card">
+                <strong>Mini CI가 담당하는 것</strong>
+                <span>프로젝트 설정, job 생성, background 실행, log, status, rerun입니다.</span>
+              </div>
+              <div class="concept-card">
+                <strong>Mini CI가 담당하지 않는 것</strong>
+                <span>Git clone, source 선택, 파일 복사, release promotion, 배포 정책입니다.</span>
+              </div>
+              <div class="concept-card">
+                <strong>보안 경계</strong>
+                <span>내장 로그인은 없습니다. 신뢰할 수 있는 네트워크에서만 서버를 노출하세요.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="flow" class="band">
+            <p class="section-kicker">전체 흐름</p>
+            <h2>HTTP run 요청이 배포와 CI 실행의 경계입니다.</h2>
+            <p>먼저 배포 프로세스가 파일을 준비합니다. Mini CI는 클라이언트 프로세스가 Run API를 호출한 뒤에만 시작됩니다.</p>
+            <div class="flow-board" aria-label="Mini CI operating flow">
+              <div class="flow-track">
+                <div class="flow-step">
+                  <span class="step-index">1</span>
+                  <h3>소스 준비</h3>
+                  <p>검증할 project revision이나 생성된 worktree를 선택합니다.</p>
+                  <span class="owner-tag">Mini CI 밖</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">2</span>
+                  <h3>디렉터리 배포</h3>
+                  <p>소스를 CI 머신의 project root 아래로 복사하거나 동기화합니다.</p>
+                  <span class="owner-tag">Mini CI 밖</span>
+                </div>
+                <div class="flow-step is-boundary">
+                  <span class="step-index">3</span>
+                  <h3>HTTP Trigger</h3>
+                  <p>project name, 선택한 worktree path, run date를 보냅니다.</p>
+                  <span class="owner-tag">handoff</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">4</span>
+                  <h3>Job 실행</h3>
+                  <p>Mini CI가 job을 queue에 넣고 <code>jobId</code>를 반환한 뒤 background에서 command를 실행합니다.</p>
+                  <span class="owner-tag">Mini CI</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">5</span>
+                  <h3>결과 확인</h3>
+                  <p>Dashboard에서 run history, selected run detail, console log, rerun action을 확인합니다.</p>
+                  <span class="owner-tag">Mini CI</span>
+                </div>
+              </div>
+              <div class="boundary-note">디렉터리를 준비하고 HTTP를 호출할 수 있으면, Mini CI 자체를 바꾸지 않고 프로젝트를 연결할 수 있습니다.</div>
+            </div>
+          </section>
+
+          <section id="directory-model" class="band">
+            <p class="section-kicker">디렉터리 모델</p>
+            <h2>프로젝트는 worktree root 아래에서 이름으로 묶입니다.</h2>
+            <p>Mini CI는 기본적으로 <code>~/.codex/worktrees</code>를 탐색합니다. <code>my-app</code>이라는 프로젝트는 여러 worktree 디렉터리를 가질 수 있고, 각 run은 그중 하나를 대상으로 실행할 수 있습니다.</p>
+            <div class="directory-visual">
+              <div class="tree" aria-label="Directory tree"><span class="dim">~/.codex/worktrees</span>
+├─ a1b2/
+│  └─ my-app/
+├─ c3d4/
+│  └─ my-app/
+└─ e5f6/
+   └─ another-app/</div>
+              <div class="definition-list">
+                <div class="definition-row">
+                  <strong>PROJECT_NAME</strong>
+                  <span>프로젝트 폴더명입니다. 예: <code>my-app</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>WORKTREE_ID</strong>
+                  <span>준비된 worktree를 식별하는 부모 폴더입니다. 예: <code>a1b2</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>WORKTREE_PATH</strong>
+                  <span>Mini CI가 실행할 상대 경로입니다. 예: <code>a1b2/my-app</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>RUN_DATE</strong>
+                  <span>Dashboard history에서 하나의 날짜 행으로 표시되는 값입니다.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="setup" class="band">
+            <p class="section-kicker">첫 설정</p>
+            <h2>서버를 시작한 뒤 Admin에서 프로젝트를 등록합니다.</h2>
+            <p>CI 머신에서 Mini CI를 시작합니다. 준비된 디렉터리의 기준 위치가 기본 worktree root가 아닐 때만 <code>MINI_CI_PROJECT_ROOT</code>를 사용합니다.</p>
+            <pre><code>MINI_CI_PORT="&lt;port&gt;"
+bin/mini-ci start --host 0.0.0.0 --port "${MINI_CI_PORT}"</code></pre>
+            <div class="recipe">
+              <div class="recipe-step">
+                <span class="recipe-index">1</span>
+                <div>
+                  <strong>Admin을 엽니다.</strong>
+                  <p><code>http://&lt;mini-ci-host&gt;:&lt;port&gt;/admin</code>으로 접속합니다.</p>
+                </div>
+              </div>
+              <div class="recipe-step">
+                <span class="recipe-index">2</span>
+                <div>
+                  <strong>프로젝트명을 선택합니다.</strong>
+                  <p>Mini CI가 project root 아래에서 일치하는 디렉터리를 탐지합니다.</p>
+                </div>
+              </div>
+              <div class="recipe-step">
+                <span class="recipe-index">3</span>
+                <div>
+                  <strong>Command를 저장합니다.</strong>
+                  <p><code>npm test</code>처럼 한 줄에 하나의 shell command를 입력합니다.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="client-process" class="band">
+            <p class="section-kicker">클라이언트 프로세스 연동</p>
+            <h2>클라이언트 프로세스는 설정을 갱신하고 특정 worktree run을 시작해야 합니다.</h2>
+            <p>Dashboard 수동 실행은 확인용으로 유용하지만, 일반적인 운영 흐름에서는 배포가 끝난 뒤 클라이언트 프로세스가 API를 호출해야 합니다.</p>
+            <pre><code>MINI_CI_URL="http://&lt;mini-ci-host&gt;:&lt;port&gt;"
+PROJECT_NAME="&lt;project-name&gt;"
+WORKTREE_ID="&lt;worktree-id&gt;"
+WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
+RUN_DATE="$(date +%Y%m%d%H%M%S)"
+COMMANDS='["npm test"]'
+
+# Project directory와 command를 갱신합니다.
+curl -X POST "${MINI_CI_URL}/api/admin/projects" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"${PROJECT_NAME}\",\"commands\":${COMMANDS}}"
+
+# 선택한 worktree에 대해 run을 시작합니다.
+curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
+  -H "Content-Type: application/json" \
+  -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
+            <p>Run API는 <code>202 Accepted</code>와 <code>jobId</code>를 반환합니다. Command 실행은 background에서 계속되고, job 실행 중 log output이 계속 누적됩니다.</p>
+          </section>
+
+          <section id="dashboard" class="band">
+            <p class="section-kicker">Dashboard 읽는 법</p>
+            <h2>History에서 detail, log 순서로 확인합니다.</h2>
+            <p>History가 가장 자주 보는 화면입니다. 행을 선택해 대상 worktree를 확인하고, 전체 console log가 필요할 때 상세 화면을 엽니다.</p>
+            <div class="dashboard-grid">
+              <div class="mock-dashboard" aria-label="Dashboard history example">
+                <div class="mock-header">
+                  <span>Date</span>
+                  <span>Status</span>
+                  <span>Exit</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 14:30</span>
+                  <span class="pill running">running</span>
+                  <span>-</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 14:18</span>
+                  <span class="pill success">success</span>
+                  <span>0</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 13:51</span>
+                  <span class="pill failed">failed</span>
+                  <span>1</span>
+                </div>
+              </div>
+              <div class="selected-run">
+                <strong>Selected Run</strong>
+                <dl>
+                  <dt>Project</dt>
+                  <dd><code>my-app</code></dd>
+                  <dt>Worktree</dt>
+                  <dd><code>a1b2/my-app</code></dd>
+                  <dt>Status</dt>
+                  <dd><span class="pill success">success</span></dd>
+                  <dt>Log</dt>
+                  <dd>Console output은 상세 페이지에서 확인합니다.</dd>
+                </dl>
+              </div>
+            </div>
+            <ul class="compact-list">
+              <li>같은 worktree의 run date 행을 비교합니다.</li>
+              <li>Rerun 전에 selected run panel에서 target path를 확인합니다.</li>
+              <li>stdout과 stderr 원문이 필요하면 detail page를 엽니다.</li>
+            </ul>
+          </section>
+
+          <section id="status" class="band">
+            <p class="section-kicker">Run status</p>
+            <h2>Status는 job이 어디에서 멈췄는지 알려줍니다.</h2>
+            <p>대부분의 실패는 command 실패입니다. <code>interrupted</code>는 다릅니다. 서버가 재시작될 때 job이 running으로 남아 있었음을 뜻합니다.</p>
+            <div class="status-grid">
+              <div class="status-card">
+                <code>queued</code>
+                <span>Job은 생성됐지만 아직 시작하지 않았습니다.</span>
+              </div>
+              <div class="status-card">
+                <code>running</code>
+                <span>Command가 실행 중이고 log가 streaming되고 있습니다.</span>
+              </div>
+              <div class="status-card">
+                <code>success</code>
+                <span>모든 command가 exit code 0으로 종료됐습니다.</span>
+              </div>
+              <div class="status-card">
+                <code>failed</code>
+                <span>Command가 non-zero로 종료됐습니다. failed step과 log를 확인합니다.</span>
+              </div>
+              <div class="status-card">
+                <code>interrupted</code>
+                <span>서버 재시작으로 stale running job이 복구된 상태입니다.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="troubleshooting" class="band">
+            <p class="section-kicker">Troubleshooting</p>
+            <h2>Project name, worktree path, command, log부터 확인합니다.</h2>
+            <p>가장 빠른 디버깅 경로는 Mini CI가 무엇을 실행하라는 요청을 받았는지, 어디에서 실행했는지, command가 무엇을 출력했는지 확인하는 것입니다.</p>
+            <div class="trouble-grid">
+              <div class="trouble-card">
+                <strong><code>404 project not found</code></strong>
+                <span>Admin 또는 <code>POST /api/admin/projects</code>로 project를 등록하거나 갱신합니다.</span>
+              </div>
+              <div class="trouble-card">
+                <strong><code>400 bad worktree path</code></strong>
+                <span><code>WORKTREE_PATH</code>가 project root 기준 상대 경로이고 등록된 경로인지 확인합니다.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>Command failed</strong>
+                <span>Job detail page에서 failed step과 console log를 확인합니다.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>일치하는 디렉터리 없음</strong>
+                <span>배포된 폴더명이 <code>PROJECT_NAME</code>과 일치하는지 확인합니다.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>잘못된 command 저장</strong>
+                <span>Admin에서 project를 선택하고 command를 수정한 뒤 다시 저장합니다.</span>
+              </div>
+              <div class="trouble-card">
+                <strong><code>interrupted</code></strong>
+                <span>이전 command의 side effect 가능성을 확인한 뒤 rerun합니다.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="handoff" class="band">
+            <p class="section-kicker">연동 전달 정보</p>
+            <h2>다른 자동화나 AI agent에게 무엇을 주면 되나.</h2>
+            <p>다른 프로세스가 소스를 준비한다면, project name, target worktree path 규칙, command list, Mini CI base URL을 알려주면 됩니다.</p>
+            <div class="handoff-box">
+              <pre><code>이 프로젝트를 Mini CI에 연결하세요.
+
+Project name: &lt;project-name&gt;
+Worktree path: &lt;worktree-id&gt;/&lt;project-name&gt;
+Commands: ["npm test"]
+Mini CI URL: http://&lt;mini-ci-host&gt;:&lt;port&gt;
+
+파일을 worktree path에 배포한 뒤:
+1. project name과 commands로 POST /api/admin/projects를 호출합니다.
+2. worktreePath와 runDate로 POST /api/projects/:name/runs를 호출합니다.
+3. 반환된 jobId와 Dashboard URL을 보고합니다.</code></pre>
+            </div>
+          </section>
+
+          <section id="api" class="band">
+            <p class="section-kicker">API reference</p>
+            <h2>흐름을 이해한 뒤 API reference를 봅니다.</h2>
+            <p>핵심 연동에는 POST 요청 두 개만 필요합니다. 나머지 endpoint는 project 조회, job 조회, log 확인, rerun에 사용합니다.</p>
+            <div class="api-grid">
+              <div class="api-card">
+                <strong>Project and run</strong>
+                <span><code>POST /api/admin/projects</code></span><br />
+                <span><code>POST /api/projects/:name/runs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Read status</strong>
+                <span><code>GET /api/jobs/:id</code></span><br />
+                <span><code>GET /api/jobs/:id/logs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Dashboard lists</strong>
+                <span><code>GET /api/projects</code></span><br />
+                <span><code>GET /api/jobs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Rerun</strong>
+                <span><code>POST /api/jobs/:id/rerun</code></span>
+              </div>
+            </div>
+          </section>
+        </article>
+
+        <nav class="nav" aria-label="WIKI navigation">
+          <strong>목차</strong>
+          <a href="#purpose">목적</a>
+          <a href="#flow">전체 흐름</a>
+          <a href="#directory-model">디렉터리 모델</a>
+          <a href="#setup">첫 설정</a>
+          <a href="#client-process">클라이언트 프로세스</a>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#status">Run Status</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+          <a href="#handoff">연동 전달 정보</a>
+          <a href="#api">API Reference</a>
+        </nav>
+      </div>
+    </main>
+  </body>
+</html>

@@ -49,3 +49,6 @@
 - [x] Admin에서 example command와 stored command를 명확히 구분하기
 - [x] GitHub Pages용 docs/index.html과 README 문서 링크 추가하기
 - [x] WIKI 문서 구조와 UI 정리하기
+- [x] WIKI를 운영 runbook 구조로 전면 재작성하기
+- [x] WIKI 색상 톤과 시각 위계 개선하기
+- [x] WIKI를 영어/한국어 문서로 분리하기

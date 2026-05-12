@@ -3,505 +3,166 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mini CI Operations Wiki</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f2f5f7;
-        --paper: #ffffff;
-        --paper-soft: #f8fafc;
-        --text: #17202e;
-        --muted: #617089;
-        --line: #d8e0ea;
-        --accent: #0f766e;
-        --accent-strong: #0b5f59;
-        --accent-soft: #e5f4f1;
-        --warn-soft: #fff7ed;
-        --warn: #9a3412;
-        --code-bg: #111827;
-        --code-text: #edf2f7;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html {
-        scroll-behavior: smooth;
-      }
-
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 16px;
-        line-height: 1.62;
-      }
-
-      main {
-        max-width: 1120px;
-        margin: 0 auto;
-        padding: 40px 24px 72px;
-      }
-
-      .shell {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 260px;
-        gap: 22px;
-        align-items: start;
-      }
-
-      article,
-      nav {
-        min-width: 0;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--paper);
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-      }
-
-      article {
-        overflow: hidden;
-      }
-
-      nav {
-        position: sticky;
-        top: 18px;
-        padding: 18px;
-      }
-
-      nav strong {
-        display: block;
-        margin-bottom: 10px;
-        color: var(--accent-strong);
-        font-size: 0.82rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      nav a {
-        display: block;
-        border-radius: 6px;
-        color: var(--muted);
-        padding: 7px 8px;
-        text-decoration: none;
-      }
-
-      nav a:hover {
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-      }
-
-      .hero {
-        border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        padding: 46px 44px 34px;
-      }
-
-      .eyebrow {
-        margin: 0 0 10px;
-        color: var(--accent);
-        font-size: 0.8rem;
-        font-weight: 850;
-        letter-spacing: 0.09em;
-        text-transform: uppercase;
-      }
-
-      h1,
-      h2,
-      h3,
-      p {
-        margin-top: 0;
-      }
-
-      h1 {
-        margin-bottom: 12px;
-        font-size: clamp(2.1rem, 5vw, 4rem);
-        font-weight: 850;
-        line-height: 1.02;
-      }
-
-      h2 {
-        margin: 0 0 14px;
-        font-size: 1.55rem;
-        line-height: 1.18;
-      }
-
-      h3 {
-        margin-bottom: 8px;
-        font-size: 1.02rem;
-        line-height: 1.25;
-      }
-
-      p {
-        margin-bottom: 12px;
-      }
-
-      .lead {
-        max-width: 760px;
-        color: var(--muted);
-        font-size: 1.08rem;
-      }
-
-      .section {
-        padding: 34px 44px;
-      }
-
-      .section + .section {
-        border-top: 1px solid var(--line);
-      }
-
-      blockquote {
-        margin: 14px 0 0;
-        border-left: 4px solid var(--accent);
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        padding: 12px 16px;
-      }
-
-      code {
-        border-radius: 4px;
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        padding: 0.12rem 0.34rem;
-        font-family: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
-        font-size: 0.92em;
-      }
-
-      pre {
-        max-width: 100%;
-        margin: 14px 0 16px;
-        overflow-x: auto;
-        border-radius: 8px;
-        background: var(--code-bg);
-        color: var(--code-text);
-        padding: 16px;
-        font-size: 0.9rem;
-        line-height: 1.55;
-      }
-
-      pre code {
-        background: transparent;
-        color: inherit;
-        padding: 0;
-      }
-
-      .summary-grid,
-      .state-grid,
-      .trouble-grid {
-        display: grid;
-        gap: 12px;
-      }
-
-      .summary-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        margin-top: 20px;
-      }
-
-      .summary-card,
-      .state-card,
-      .trouble-card,
-      .flow-step {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--paper-soft);
-        padding: 16px;
-      }
-
-      .summary-card strong,
-      .state-card strong,
-      .trouble-card strong {
-        display: block;
-        margin-bottom: 6px;
-      }
-
-      .summary-card span,
-      .state-card span,
-      .trouble-card span,
-      .flow-step p {
-        color: var(--muted);
-      }
-
-      .flow-map {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 16px;
-        margin: 20px 0;
-      }
-
-      .flow-lane {
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--paper-soft);
-        padding: 16px;
-      }
-
-      .flow-lane h3 {
-        margin: 0 0 14px;
-        color: var(--muted);
-        font-size: 0.82rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .flow-steps {
-        display: grid;
-        gap: 10px;
-      }
-
-      .flow-step {
-        position: relative;
-        display: grid;
-        grid-template-columns: 34px minmax(0, 1fr);
-        gap: 12px;
-        background: var(--paper);
-      }
-
-      .flow-step.is-handoff {
-        border-color: #93d4ca;
-        background: var(--accent-soft);
-      }
-
-      .step-number {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 999px;
-        background: var(--accent);
-        color: white;
-        font-weight: 850;
-      }
-
-      .flow-step p {
-        margin: 0;
-      }
-
-      .handoff-note {
-        margin: 18px 0 0;
-        border-radius: 8px;
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        padding: 14px 16px;
-        font-weight: 750;
-      }
-
-      .state-grid {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        margin-top: 18px;
-      }
-
-      .state-card {
-        background: var(--paper);
-      }
-
-      .state-card code {
-        display: inline-block;
-        margin-bottom: 8px;
-      }
-
-      .trouble-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-top: 18px;
-      }
-
-      .trouble-card {
-        background: var(--warn-soft);
-      }
-
-      .trouble-card strong {
-        color: var(--warn);
-      }
-
-      .checklist {
-        margin: 16px 0 0;
-        padding-left: 22px;
-      }
-
-      .checklist li + li {
-        margin-top: 8px;
-      }
-
-      @media (max-width: 900px) {
-        .shell {
-          grid-template-columns: 1fr;
-        }
-
-        nav {
-          position: static;
-          order: -1;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-
-        nav strong {
-          flex-basis: 100%;
-          margin-bottom: 4px;
-        }
-
-        nav a {
-          display: inline-flex;
-        }
-
-        .summary-grid,
-        .flow-map,
-        .state-grid,
-        .trouble-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      @media (max-width: 640px) {
-        main {
-          padding: 18px 12px 40px;
-        }
-
-        .hero,
-        .section {
-          padding: 26px 18px;
-        }
-
-        pre {
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-        }
-      }
-    </style>
+    <title>Mini CI Runbook</title>
+    <link rel="stylesheet" href="./wiki.css" />
   </head>
   <body>
     <main>
-      <div class="shell">
-        <article>
+      <div class="page-grid">
+        <article class="content">
           <header class="hero">
-            <p class="eyebrow">Mini CI</p>
-            <h1>Operations Wiki</h1>
-            <p class="lead">Mini CI runs configured shell commands against directories that are already deployed on the CI machine.</p>
-            <blockquote>Mini CI는 CI 머신에 이미 배포된 디렉터리에서 설정된 shell command를 실행합니다.</blockquote>
+            <div class="lang-switch" aria-label="Language">
+              <span class="active">English</span>
+              <a href="./WIKI.ko.html">한국어</a>
+            </div>
+            <p class="eyebrow">Mini CI Runbook</p>
+            <h1>Run checks after your deploy process prepares a directory.</h1>
+            <p class="lead">Mini CI is a lightweight execution layer for local self-hosted CI. It receives HTTP run requests, executes configured shell commands in prepared directories, streams logs, and shows results on the Dashboard.</p>
+            <div class="mission-grid">
+              <div class="mission-card">
+                <strong>What it runs</strong>
+                <span>Commands you register for a project.</span>
+              </div>
+              <div class="mission-card">
+                <strong>Where it runs</strong>
+                <span>Inside an already deployed worktree directory.</span>
+              </div>
+              <div class="mission-card">
+                <strong>What it shows</strong>
+                <span>Status, history, console logs, and rerun controls.</span>
+              </div>
+            </div>
           </header>
 
-          <section id="what" class="section">
-            <h2>What Mini CI Does</h2>
-            <p>Mini CI is the execution and visibility layer. It does not choose source revisions, clone repositories, copy files, or promote releases.</p>
-            <blockquote>Mini CI는 실행과 가시성 계층입니다. 소스 revision 선택, repository clone, 파일 복사, release promotion은 담당하지 않습니다.</blockquote>
-            <div class="summary-grid">
-              <div class="summary-card">
-                <strong>Owns CI execution</strong>
-                <span>Project registration, run creation, command execution, logs, status, and rerun actions.</span>
+          <section id="purpose" class="band">
+            <p class="section-kicker">Purpose</p>
+            <h2>Use this WIKI when connecting a project to Mini CI.</h2>
+            <p>This document is an operator runbook. It helps a first-time user understand the model, start the server, register a project, trigger a run from a client process, and read the Dashboard.</p>
+            <div class="concept-grid">
+              <div class="concept-card">
+                <strong>Mini CI owns</strong>
+                <span>Project settings, job creation, background execution, logs, status, and rerun.</span>
               </div>
-              <div class="summary-card">
-                <strong>Leaves deployment outside</strong>
-                <span>Your deploy process prepares the directory, then calls Mini CI over HTTP.</span>
+              <div class="concept-card">
+                <strong>Mini CI does not own</strong>
+                <span>Git clone, source selection, file copy, release promotion, or deployment policy.</span>
+              </div>
+              <div class="concept-card">
+                <strong>Security boundary</strong>
+                <span>There is no built-in login. Expose the server only on a trusted network.</span>
               </div>
             </div>
           </section>
 
-          <section id="flow" class="section">
-            <h2>Operating Flow</h2>
-            <p>The HTTP trigger is the boundary between deployment work and CI execution.</p>
-            <blockquote>HTTP trigger는 배포 작업과 CI 실행을 나누는 경계입니다.</blockquote>
-            <div class="flow-map" aria-label="Mini CI operating flow">
-              <div class="flow-lane">
-                <h3>Deployment side</h3>
-                <div class="flow-steps">
-                  <div class="flow-step">
-                    <span class="step-number">1</span>
-                    <div>
-                      <h3>Source is ready</h3>
-                      <p>Select the version or worktree that should be tested.</p>
-                    </div>
-                  </div>
-                  <div class="flow-step">
-                    <span class="step-number">2</span>
-                    <div>
-                      <h3>Directory is deployed</h3>
-                      <p>Copy files to the CI machine under the project root.</p>
-                    </div>
-                  </div>
-                  <div class="flow-step is-handoff">
-                    <span class="step-number">3</span>
-                    <div>
-                      <h3>HTTP trigger</h3>
-                      <p>Send project name, worktree path, and run date to Mini CI.</p>
-                    </div>
-                  </div>
+          <section id="flow" class="band">
+            <p class="section-kicker">One-screen flow</p>
+            <h2>The handoff point is the HTTP run request.</h2>
+            <p>Your deploy process prepares files first. Mini CI begins only after the client process calls the Run API.</p>
+            <div class="flow-board" aria-label="Mini CI operating flow">
+              <div class="flow-track">
+                <div class="flow-step">
+                  <span class="step-index">1</span>
+                  <h3>Prepare source</h3>
+                  <p>Select the project revision or generated worktree that should be checked.</p>
+                  <span class="owner-tag">outside Mini CI</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">2</span>
+                  <h3>Deploy directory</h3>
+                  <p>Copy or sync the source into the CI machine project root.</p>
+                  <span class="owner-tag">outside Mini CI</span>
+                </div>
+                <div class="flow-step is-boundary">
+                  <span class="step-index">3</span>
+                  <h3>Trigger HTTP</h3>
+                  <p>Send project name, selected worktree path, and run date.</p>
+                  <span class="owner-tag">handoff</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">4</span>
+                  <h3>Run job</h3>
+                  <p>Mini CI queues the job, returns <code>jobId</code>, and runs commands in the background.</p>
+                  <span class="owner-tag">Mini CI</span>
+                </div>
+                <div class="flow-step">
+                  <span class="step-index">5</span>
+                  <h3>Inspect result</h3>
+                  <p>Dashboard shows run history, selected run details, console logs, and rerun actions.</p>
+                  <span class="owner-tag">Mini CI</span>
                 </div>
               </div>
-              <div class="flow-lane">
-                <h3>Mini CI side</h3>
-                <div class="flow-steps">
-                  <div class="flow-step">
-                    <span class="step-number">4</span>
-                    <div>
-                      <h3>Job is queued</h3>
-                      <p>The API returns <code>202 Accepted</code> with <code>jobId</code>.</p>
-                    </div>
-                  </div>
-                  <div class="flow-step">
-                    <span class="step-number">5</span>
-                    <div>
-                      <h3>Commands run</h3>
-                      <p>Background execution streams stdout and stderr into the job log.</p>
-                    </div>
-                  </div>
-                  <div class="flow-step">
-                    <span class="step-number">6</span>
-                    <div>
-                      <h3>Result is visible</h3>
-                      <p>Dashboard shows status, logs, history, and rerun actions.</p>
-                    </div>
-                  </div>
+              <div class="boundary-note">If you can prepare a directory and call HTTP, you can connect the project without changing Mini CI.</div>
+            </div>
+          </section>
+
+          <section id="directory-model" class="band">
+            <p class="section-kicker">Directory model</p>
+            <h2>Projects are grouped by name under a worktree root.</h2>
+            <p>By default, Mini CI scans <code>~/.codex/worktrees</code>. A project named <code>my-app</code> can have multiple worktree directories, and each run can target one of them.</p>
+            <div class="directory-visual">
+              <div class="tree" aria-label="Directory tree"><span class="dim">~/.codex/worktrees</span>
+├─ a1b2/
+│  └─ my-app/
+├─ c3d4/
+│  └─ my-app/
+└─ e5f6/
+   └─ another-app/</div>
+              <div class="definition-list">
+                <div class="definition-row">
+                  <strong>PROJECT_NAME</strong>
+                  <span>The project folder name, such as <code>my-app</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>WORKTREE_ID</strong>
+                  <span>The parent folder that identifies a prepared worktree, such as <code>a1b2</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>WORKTREE_PATH</strong>
+                  <span>The relative path Mini CI should run, such as <code>a1b2/my-app</code>.</span>
+                </div>
+                <div class="definition-row">
+                  <strong>RUN_DATE</strong>
+                  <span>The date label shown as one row in Dashboard history.</span>
                 </div>
               </div>
             </div>
-            <p class="handoff-note">Deployment can be changed independently as long as it prepares the directory and calls the Run API.</p>
-            <blockquote>디렉터리를 준비하고 Run API를 호출하기만 하면, 배포 방식은 Mini CI와 독립적으로 바꿀 수 있습니다.</blockquote>
           </section>
 
-          <section id="lifecycle" class="section">
-            <h2>Run Lifecycle</h2>
-            <p>A run is created first, then executed in the background. Logs can be inspected while the job is still running.</p>
-            <blockquote>run은 먼저 생성되고 background에서 실행됩니다. job이 실행 중이어도 로그를 확인할 수 있습니다.</blockquote>
-            <div class="state-grid">
-              <div class="state-card">
-                <code>queued</code>
-                <span>Job was created and is waiting to start.</span>
-              </div>
-              <div class="state-card">
-                <code>running</code>
-                <span>Commands are executing and logs are being written.</span>
-              </div>
-              <div class="state-card">
-                <code>success</code>
-                <span>All configured commands exited with code 0.</span>
-              </div>
-              <div class="state-card">
-                <code>failed</code>
-                <span>A command failed and the failed step was recorded.</span>
-              </div>
-              <div class="state-card">
-                <code>interrupted</code>
-                <span>The server restarted while a job was marked running.</span>
-              </div>
-            </div>
-          </section>
-
-          <section id="setup" class="section">
-            <h2>Start The Server</h2>
-            <p>Start the server on the CI machine. Network access is the security boundary because Mini CI does not include built-in authentication.</p>
-            <blockquote>CI 머신에서 서버를 시작합니다. Mini CI는 내장 인증이 없으므로 네트워크 접근 가능 여부가 보안 경계입니다.</blockquote>
+          <section id="setup" class="band">
+            <p class="section-kicker">First setup</p>
+            <h2>Start the server, then register the project from Admin.</h2>
+            <p>Start Mini CI on the CI machine. Use <code>MINI_CI_PROJECT_ROOT</code> only when the default worktree root is not the right place for your prepared directories.</p>
             <pre><code>MINI_CI_PORT="&lt;port&gt;"
 bin/mini-ci start --host 0.0.0.0 --port "${MINI_CI_PORT}"</code></pre>
-            <p>Project paths are discovered by project name under <code>~/.codex/worktrees</code> by default. Set <code>MINI_CI_PROJECT_ROOT</code> to use a different base directory.</p>
-            <blockquote>프로젝트 경로는 기본적으로 <code>~/.codex/worktrees</code> 아래에서 프로젝트명으로 자동 탐지합니다. 다른 기준 디렉터리를 쓰려면 <code>MINI_CI_PROJECT_ROOT</code>를 설정합니다.</blockquote>
+            <div class="recipe">
+              <div class="recipe-step">
+                <span class="recipe-index">1</span>
+                <div>
+                  <strong>Open Admin.</strong>
+                  <p>Go to <code>http://&lt;mini-ci-host&gt;:&lt;port&gt;/admin</code>.</p>
+                </div>
+              </div>
+              <div class="recipe-step">
+                <span class="recipe-index">2</span>
+                <div>
+                  <strong>Choose a project name.</strong>
+                  <p>Mini CI discovers matching directories under the project root.</p>
+                </div>
+              </div>
+              <div class="recipe-step">
+                <span class="recipe-index">3</span>
+                <div>
+                  <strong>Save commands.</strong>
+                  <p>Use one shell command per line, such as <code>npm test</code>.</p>
+                </div>
+              </div>
+            </div>
           </section>
 
-          <section id="client-api" class="section">
-            <h2>Client Process API</h2>
-            <p>After deployment finishes, the client process should refresh project settings by project name and then start a run for the selected worktree.</p>
-            <blockquote>배포가 끝나면 클라이언트 프로세스가 프로젝트명으로 설정을 갱신하고 선택한 worktree에 대해 run을 시작해야 합니다.</blockquote>
+          <section id="client-process" class="band">
+            <p class="section-kicker">Client process integration</p>
+            <h2>The client process should refresh settings and trigger a targeted run.</h2>
+            <p>The Dashboard manual run is useful for inspection, but the normal production flow should call the API after deployment completes.</p>
             <pre><code>MINI_CI_URL="http://&lt;mini-ci-host&gt;:&lt;port&gt;"
 PROJECT_NAME="&lt;project-name&gt;"
 WORKTREE_ID="&lt;worktree-id&gt;"
@@ -509,59 +170,185 @@ WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
 RUN_DATE="$(date +%Y%m%d%H%M%S)"
 COMMANDS='["npm test"]'
 
+# Refresh project directories and commands.
 curl -X POST "${MINI_CI_URL}/api/admin/projects" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"${PROJECT_NAME}\",\"commands\":${COMMANDS}}"
 
+# Start one run for the selected worktree.
 curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
-            <p>The Admin API discovers matching directories under the project root. The Run API returns <code>202 Accepted</code> with <code>jobId</code>. Use <code>GET /api/jobs/:id</code> or the Dashboard to inspect status.</p>
-            <blockquote>Admin API는 프로젝트 기준 디렉터리 아래에서 일치하는 디렉터리를 자동 탐지합니다. Run API는 <code>202 Accepted</code>와 <code>jobId</code>를 반환합니다. 상태는 <code>GET /api/jobs/:id</code> 또는 Dashboard에서 확인합니다.</blockquote>
+            <p>The Run API returns <code>202 Accepted</code> with <code>jobId</code>. Command execution continues in the background, and log output is appended while the job runs.</p>
           </section>
 
-          <section id="dashboard" class="section">
-            <h2>Dashboard</h2>
-            <p>The dashboard is the main inspection surface. History is grouped by project and worktree, and each run appears as one date row.</p>
-            <blockquote>Dashboard는 주요 확인 화면입니다. 실행 이력은 project와 worktree 기준으로 묶이고, 각 run은 하나의 날짜 행으로 표시됩니다.</blockquote>
-            <ul class="checklist">
-              <li>Select a run row to see the selected run summary.</li>
-              <li>Open run detail to inspect the console log without losing the history view.</li>
-              <li>Use rerun only after confirming the target worktree and command list.</li>
+          <section id="dashboard" class="band">
+            <p class="section-kicker">Dashboard guide</p>
+            <h2>Read the Dashboard from history to detail to log.</h2>
+            <p>History is the main surface. Select a row to confirm the target worktree, then open details when you need the full console log.</p>
+            <div class="dashboard-grid">
+              <div class="mock-dashboard" aria-label="Dashboard history example">
+                <div class="mock-header">
+                  <span>Date</span>
+                  <span>Status</span>
+                  <span>Exit</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 14:30</span>
+                  <span class="pill running">running</span>
+                  <span>-</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 14:18</span>
+                  <span class="pill success">success</span>
+                  <span>0</span>
+                </div>
+                <div class="mock-row">
+                  <span class="run-date">05-12 13:51</span>
+                  <span class="pill failed">failed</span>
+                  <span>1</span>
+                </div>
+              </div>
+              <div class="selected-run">
+                <strong>Selected Run</strong>
+                <dl>
+                  <dt>Project</dt>
+                  <dd><code>my-app</code></dd>
+                  <dt>Worktree</dt>
+                  <dd><code>a1b2/my-app</code></dd>
+                  <dt>Status</dt>
+                  <dd><span class="pill success">success</span></dd>
+                  <dt>Log</dt>
+                  <dd>Open detail page for console output.</dd>
+                </dl>
+              </div>
+            </div>
+            <ul class="compact-list">
+              <li>Use run rows to compare dates for the same worktree.</li>
+              <li>Use the selected run panel to verify target path before rerun.</li>
+              <li>Use the detail page when you need raw stdout and stderr.</li>
             </ul>
-            <blockquote>run 행을 선택해 요약을 보고, 상세 페이지에서 console log를 확인하고, rerun 전에는 실행 대상과 command를 확인합니다.</blockquote>
           </section>
 
-          <section id="troubleshooting" class="section">
-            <h2>Troubleshooting</h2>
-            <p>Start with the project name, worktree path, job status, and log output.</p>
-            <blockquote>문제가 생기면 project name, worktree path, job status, log output부터 확인합니다.</blockquote>
+          <section id="status" class="band">
+            <p class="section-kicker">Run status</p>
+            <h2>Status tells you where the job stopped.</h2>
+            <p>Most failures are command failures. <code>interrupted</code> is different: it means the server restarted while a job was marked as running.</p>
+            <div class="status-grid">
+              <div class="status-card">
+                <code>queued</code>
+                <span>Job exists but has not started yet.</span>
+              </div>
+              <div class="status-card">
+                <code>running</code>
+                <span>Commands are executing and logs are streaming.</span>
+              </div>
+              <div class="status-card">
+                <code>success</code>
+                <span>All commands exited with code 0.</span>
+              </div>
+              <div class="status-card">
+                <code>failed</code>
+                <span>A command exited non-zero; check failed step and log.</span>
+              </div>
+              <div class="status-card">
+                <code>interrupted</code>
+                <span>Server restart recovered a stale running job.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="troubleshooting" class="band">
+            <p class="section-kicker">Troubleshooting</p>
+            <h2>Start from project name, worktree path, command, and log.</h2>
+            <p>The fastest debug path is to confirm what Mini CI was asked to run, where it ran, and what the command printed.</p>
             <div class="trouble-grid">
               <div class="trouble-card">
                 <strong><code>404 project not found</code></strong>
-                <span>The project was not registered or the project name does not match.</span>
+                <span>Register or refresh the project from Admin or <code>POST /api/admin/projects</code>.</span>
               </div>
               <div class="trouble-card">
                 <strong><code>400 bad worktree path</code></strong>
-                <span>The requested worktree path is outside the project root or not registered.</span>
+                <span>Check that <code>WORKTREE_PATH</code> is relative to the project root and already registered.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>Command failed</strong>
+                <span>Open the job detail page and inspect the failed step and console log.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>No matching directory</strong>
+                <span>Confirm that the deployed folder name matches <code>PROJECT_NAME</code>.</span>
+              </div>
+              <div class="trouble-card">
+                <strong>Wrong command saved</strong>
+                <span>Open Admin, select the project, edit commands, then save again.</span>
               </div>
               <div class="trouble-card">
                 <strong><code>interrupted</code></strong>
-                <span>The server restarted while the job was marked as running.</span>
+                <span>Rerun after confirming whether the previous command had side effects.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="handoff" class="band">
+            <p class="section-kicker">Integration handoff</p>
+            <h2>What to give another automation or AI agent.</h2>
+            <p>When another process prepares the source, give it the project name, target worktree path convention, command list, and Mini CI base URL.</p>
+            <div class="handoff-box">
+              <pre><code>Connect this project to Mini CI.
+
+Project name: &lt;project-name&gt;
+Worktree path: &lt;worktree-id&gt;/&lt;project-name&gt;
+Commands: ["npm test"]
+Mini CI URL: http://&lt;mini-ci-host&gt;:&lt;port&gt;
+
+After deploying files to the worktree path:
+1. POST /api/admin/projects with project name and commands.
+2. POST /api/projects/:name/runs with worktreePath and runDate.
+3. Report the returned jobId and Dashboard URL.</code></pre>
+            </div>
+          </section>
+
+          <section id="api" class="band">
+            <p class="section-kicker">API reference</p>
+            <h2>Use the API reference after the flow is clear.</h2>
+            <p>The core integration uses only two POST requests. The remaining endpoints are for listing projects, reading jobs, logs, and rerunning.</p>
+            <div class="api-grid">
+              <div class="api-card">
+                <strong>Project and run</strong>
+                <span><code>POST /api/admin/projects</code></span><br />
+                <span><code>POST /api/projects/:name/runs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Read status</strong>
+                <span><code>GET /api/jobs/:id</code></span><br />
+                <span><code>GET /api/jobs/:id/logs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Dashboard lists</strong>
+                <span><code>GET /api/projects</code></span><br />
+                <span><code>GET /api/jobs</code></span>
+              </div>
+              <div class="api-card">
+                <strong>Rerun</strong>
+                <span><code>POST /api/jobs/:id/rerun</code></span>
               </div>
             </div>
           </section>
         </article>
 
-        <nav aria-label="Wiki navigation">
+        <nav class="nav" aria-label="WIKI navigation">
           <strong>On this page</strong>
-          <a href="#what">What Mini CI Does</a>
-          <a href="#flow">Operating Flow</a>
-          <a href="#lifecycle">Run Lifecycle</a>
-          <a href="#setup">Start The Server</a>
-          <a href="#client-api">Client Process API</a>
+          <a href="#purpose">Purpose</a>
+          <a href="#flow">Flow</a>
+          <a href="#directory-model">Directory Model</a>
+          <a href="#setup">First Setup</a>
+          <a href="#client-process">Client Process</a>
           <a href="#dashboard">Dashboard</a>
+          <a href="#status">Run Status</a>
           <a href="#troubleshooting">Troubleshooting</a>
+          <a href="#handoff">Integration Handoff</a>
+          <a href="#api">API Reference</a>
         </nav>
       </div>
     </main>
