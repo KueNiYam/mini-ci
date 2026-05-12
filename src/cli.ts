@@ -100,7 +100,7 @@ Usage:
 
 After start:
   Project management: /admin
-  Run: POST /api/projects/:name/runs with worktreePath and runDate
+  Run: POST /api/projects/:name/runs returns 202 Accepted with jobId
   Project root: ~/.codex/worktrees or MINI_CI_PROJECT_ROOT
 `);
 }

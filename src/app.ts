@@ -13,6 +13,7 @@ import {
   ensureMiniCiHome,
   findJobById,
   findJobByIdWithProject,
+  findJobsByStatus,
   findLatestJob,
   findLatestJobForProject,
   findProjectById,
@@ -63,6 +64,8 @@ type RunTarget = Readonly<{
   project: Project;
   metadata: RunMetadata;
 }>;
+
+const activeJobIds = new Set<string>();
 
 /** 환경변수와 기본값을 기준으로 Mini CI 홈 경로를 결정합니다. */
 export function resolveMiniCiHome(env: NodeJS.ProcessEnv = process.env): string {
@@ -123,7 +126,7 @@ export function addProject(home: string, input: AddProjectInput): Project {
   return project;
 }
 
-/** 프로젝트 이름, worktree path, run date 기준으로 CI job을 생성하고 command를 실행합니다. */
+/** 프로젝트 이름, worktree path, run date 기준으로 CI job을 생성하고 background 실행을 예약합니다. */
 export function runProjectByName(home: string, input: RunProjectInput): Job {
   initializeDatabase(home);
 
@@ -133,11 +136,11 @@ export function runProjectByName(home: string, input: RunProjectInput): Job {
   }
 
   const target = selectRunTarget(project, input);
-  return createAndRunJob(home, target.project, target.metadata);
+  return createAndQueueJob(home, target.project, target.metadata);
 }
 
-/** 프로젝트와 worktree/date 메타데이터 기준으로 CI job을 생성하고 모든 command를 실행합니다. */
-export function createAndRunJob(home: string, project: Project, metadata: RunMetadata): Job {
+/** 프로젝트와 worktree/date 메타데이터 기준으로 CI job을 생성하고 비동기 실행을 시작합니다. */
+export function createAndQueueJob(home: string, project: Project, metadata: RunMetadata): Job {
   const paths = resolvePaths(home);
   const projectLogDir = join(paths.logsDir, project.name);
   mkdirSync(projectLogDir, { recursive: true });
@@ -163,27 +166,9 @@ export function createAndRunJob(home: string, project: Project, metadata: RunMet
     job.logPath,
     `Mini CI job ${job.id}\nproject: ${project.name}\nworktree id: ${metadata.worktreeId}\nworktree path: ${metadata.worktreePath}\nrun date: ${metadata.runDate}\npaths:\n${project.projectPaths.map((path) => `- ${path}`).join("\n")}\n\n`,
   );
-  updateJobStatus(home, job.id, {
-    status: "running",
-    failedStep: null,
-    exitCode: null,
-    startedAt: nowIso(),
-  });
+  startJobExecution(home, project, job);
 
-  const result = runJobSteps(project, job.logPath);
-  updateJobStatus(home, job.id, {
-    status: result.status,
-    failedStep: result.failedStep,
-    exitCode: result.exitCode,
-    finishedAt: nowIso(),
-  });
-
-  const saved = findJobById(home, job.id);
-  if (!saved) {
-    throw new Error(`생성한 job을 다시 조회하지 못했습니다: ${job.id}`);
-  }
-
-  return saved;
+  return job;
 }
 
 /** 같은 worktree와 run date로 기존 job을 재실행합니다. */
@@ -204,11 +189,30 @@ export function rerunJob(home: string, jobId: string): Job {
     ? project
     : { ...project, projectPaths: [job.worktreePath] };
 
-  return createAndRunJob(home, projectForRun, {
+  return createAndQueueJob(home, projectForRun, {
     worktreePath: job.worktreePath,
     worktreeId: job.worktreeId,
     runDate: job.runDate,
   });
+}
+
+/** 프로세스 재시작으로 끊긴 running job을 복구 가능한 종료 상태로 바꿉니다. */
+export function recoverStaleRunningJobs(home: string): number {
+  initializeDatabase(home);
+  const staleJobs = findJobsByStatus(home, "running");
+  const interruptedAt = nowIso();
+
+  for (const job of staleJobs) {
+    appendLog(job.logPath, `\ninterrupted: server restarted before this job finished (${interruptedAt})\n`);
+    updateJobStatus(home, job.id, {
+      status: "interrupted",
+      failedStep: "server restart",
+      exitCode: null,
+      finishedAt: interruptedAt,
+    });
+  }
+
+  return staleJobs.length;
 }
 
 /** 대시보드 API에서 사용할 최신 job을 조회합니다. */
@@ -264,16 +268,59 @@ export function getJobLog(home: string, jobId: string): string | null {
   return readFileSync(job.logPath, "utf8");
 }
 
+/** job 실행을 현재 서버 프로세스의 background task로 예약합니다. */
+function startJobExecution(home: string, project: Project, job: Job): void {
+  if (activeJobIds.has(job.id)) {
+    return;
+  }
+
+  activeJobIds.add(job.id);
+  queueMicrotask(() => {
+    void runQueuedJob(home, project, job).finally(() => {
+      activeJobIds.delete(job.id);
+    });
+  });
+}
+
+/** queued job을 running으로 전환하고 command 실행 결과를 DB에 저장합니다. */
+async function runQueuedJob(home: string, project: Project, job: Job): Promise<void> {
+  updateJobStatus(home, job.id, {
+    status: "running",
+    failedStep: null,
+    exitCode: null,
+    startedAt: nowIso(),
+  });
+
+  try {
+    const result = await runJobSteps(project, job.logPath);
+    updateJobStatus(home, job.id, {
+      status: result.status,
+      failedStep: result.failedStep,
+      exitCode: result.exitCode,
+      finishedAt: nowIso(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendLog(job.logPath, `\nfailed: ${message}\n`);
+    updateJobStatus(home, job.id, {
+      status: "failed",
+      failedStep: message,
+      exitCode: 1,
+      finishedAt: nowIso(),
+    });
+  }
+}
+
 /** command 실행과 실패 중단 정책을 순서대로 수행합니다. */
-function runJobSteps(project: Project, logPath: string): JobStepResult {
+async function runJobSteps(project: Project, logPath: string): Promise<JobStepResult> {
   for (const projectPath of project.projectPaths) {
     appendLog(logPath, `== ${projectPath}\n`);
 
     for (const command of project.commands) {
       appendLog(logPath, `$ ${command}\n`);
-      const result = runShellCommand(command, projectPath);
-      appendLog(logPath, result.stdout);
-      appendLog(logPath, result.stderr);
+      const result = await runShellCommand(command, projectPath, (chunk) => {
+        appendLog(logPath, chunk);
+      });
 
       if (result.exitCode !== 0) {
         const failedStep = `${projectPath}: ${command}`;

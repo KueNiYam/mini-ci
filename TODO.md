@@ -43,3 +43,7 @@
 - [x] Dashboard에서 job 상세 페이지로 Selected Run/Console 분리하기
 - [x] Dashboard run row 전체를 선택 가능하게 하기
 - [x] Dashboard Runs 옆에 Selected Run 요약 패널 붙이기
+- [x] Run API를 비동기 job 생성 방식으로 바꾸기
+- [x] command 실행을 spawn streaming 방식으로 바꾸기
+- [x] 서버 시작 시 stale running job을 interrupted로 복구하기
+- [x] Admin에서 example command와 stored command를 명확히 구분하기

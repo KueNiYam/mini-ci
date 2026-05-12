@@ -14,6 +14,10 @@ Trigger runs over HTTP without extra credentials.
 
 > 추가 credential 없이 HTTP 요청으로 run을 시작합니다.
 
+Run requests return immediately with a job ID, and command output is appended to the job log while the job runs.
+
+> run 요청은 job ID를 즉시 반환하고, command 출력은 job 실행 중 job log에 계속 누적됩니다.
+
 View project/worktree history, logs, and rerun actions in the dashboard.
 
 > 대시보드에서 프로젝트/worktree별 이력, 로그, rerun을 확인할 수 있습니다.
@@ -69,6 +73,10 @@ curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"
 ```
+
+The run API returns `202 Accepted` with `jobId`. Check the dashboard or `GET /api/jobs/:id` for `queued`, `running`, `success`, `failed`, or `interrupted`.
+
+> run API는 `202 Accepted`와 `jobId`를 반환합니다. `queued`, `running`, `success`, `failed`, `interrupted` 상태는 대시보드나 `GET /api/jobs/:id`에서 확인합니다.
 
 ## Integrating Another Project
 

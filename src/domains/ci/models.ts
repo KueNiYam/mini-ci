@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-export const JOB_STATUSES = ["queued", "running", "success", "failed"] as const;
+export const JOB_STATUSES = ["queued", "running", "success", "failed", "interrupted"] as const;
 
 /** job 실행 상태의 단일 출처입니다. */
 export type JobStatus = (typeof JOB_STATUSES)[number];

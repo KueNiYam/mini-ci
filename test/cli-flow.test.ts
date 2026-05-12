@@ -10,10 +10,12 @@ import {
   getJob,
   getProjects,
   getRecentJobsForProjectName,
+  recoverStaleRunningJobs,
   runProjectByName,
 } from "../src/app.ts";
 import { initializeDatabase, insertJob, saveProject } from "../src/adapters/database/sqlite.ts";
 import { listProjectRootEntries, projectPathsForName, resolveAdminProjectPaths } from "../src/adapters/http/dashboard.ts";
+import { runShellCommand } from "../src/adapters/process/shell.ts";
 import type { Job, Project } from "../src/domains/ci/models.ts";
 
 test("directory project에서 CI job을 실행한다", async () => {
@@ -43,15 +45,64 @@ test("directory project에서 CI job을 실행한다", async () => {
     worktreePath: "a/app",
     runDate: "20260511120000",
   });
+  const finishedJob = await waitForJob(home, job.id, "success");
 
   const resultPathA = join(projectPathA, "ci-result.txt");
   const resultPathB = join(projectPathB, "ci-result.txt");
-  assert.equal(job.status, "success");
-  assert.equal(job.worktreeId, "a");
-  assert.equal(job.runDate, "20260511120000");
+  assert.equal(job.status, "queued");
+  assert.equal(finishedJob.status, "success");
+  assert.equal(finishedJob.worktreeId, "a");
+  assert.equal(finishedJob.runDate, "20260511120000");
   assert.equal(existsSync(resultPathA), true);
   assert.equal(existsSync(resultPathB), false);
   assert.equal(readFileSync(resultPathA, "utf8"), "ok");
+});
+
+test("shell command 출력은 실행 중 streaming callback으로 전달된다", async () => {
+  // Given:
+  // When:
+  // Then:
+  const root = await mkdtemp(join(tmpdir(), "mini-ci-stream-"));
+  const chunks: string[] = [];
+  let resolved = false;
+
+  const resultPromise = runShellCommand(
+    "node -e \"process.stdout.write('first\\\\n'); setTimeout(() => process.stdout.write('second\\\\n'), 80)\"",
+    root,
+    (chunk) => chunks.push(chunk),
+  ).then((result) => {
+    resolved = true;
+    return result;
+  });
+
+  await waitUntil(() => chunks.join("").includes("first"));
+  assert.equal(resolved, false);
+
+  const result = await resultPromise;
+  assert.equal(result.exitCode, 0);
+  assert.match(chunks.join(""), /first\nsecond/);
+});
+
+test("서버 시작 복구는 stale running job을 interrupted로 전환한다", async () => {
+  // Given:
+  // When:
+  // Then:
+  const root = await mkdtemp(join(tmpdir(), "mini-ci-stale-"));
+  const home = join(root, "home");
+  const project = createProject("project-a", "app-a", join(root, "app-a"));
+  const logPath = join(root, "running.log");
+  mkdirSync(join(root, "app-a"), { recursive: true });
+  writeFileSync(logPath, "running\n");
+
+  initializeDatabase(home);
+  saveProject(home, project);
+  insertJob(home, createJob("job-running", project.id, "worktree-a", "20260511000100", logPath, "running"));
+
+  assert.equal(recoverStaleRunningJobs(home), 1);
+  const job = getJob(home, "job-running");
+  assert.equal(job?.status, "interrupted");
+  assert.equal(job?.failedStep, "server restart");
+  assert.match(readFileSync(logPath, "utf8"), /interrupted: server restarted/);
 });
 
 test("프로젝트 등록은 기준 디렉터리 밖의 경로를 거부한다", async () => {
@@ -168,19 +219,53 @@ function createProject(id: string, name: string, projectPath: string): Project {
 }
 
 /** 테스트용 job 모델을 만듭니다. */
-function createJob(id: string, projectId: string, worktreeId: string, runDate: string, logPath: string): Job {
+function createJob(
+  id: string,
+  projectId: string,
+  worktreeId: string,
+  runDate: string,
+  logPath: string,
+  status: Job["status"] = "success",
+): Job {
   return {
     id,
     projectId,
     worktreePath: `/tmp/${worktreeId}`,
     worktreeId,
     runDate,
-    status: "success",
+    status,
     failedStep: null,
-    exitCode: 0,
+    exitCode: status === "success" ? 0 : null,
     logPath,
     createdAt: id.endsWith("a") ? "2026-05-11T00:00:01.000Z" : "2026-05-11T00:00:02.000Z",
     startedAt: null,
     finishedAt: null,
   };
+}
+
+/** 조건이 true가 될 때까지 짧게 polling합니다. */
+async function waitUntil(predicate: () => boolean, timeoutMs: number = 1000): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("조건 대기 시간이 초과되었습니다.");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/** job이 원하는 상태가 될 때까지 조회합니다. */
+async function waitForJob(home: string, jobId: string, status: Job["status"]): Promise<Job & Readonly<{ projectName: string }>> {
+  let latest: (Job & Readonly<{ projectName: string }>) | null = null;
+  await waitUntil(() => {
+    latest = getJob(home, jobId);
+    return latest?.status === status;
+  }, 1500);
+
+  if (!latest) {
+    throw new Error(`job을 찾을 수 없습니다: ${jobId}`);
+  }
+
+  return latest;
 }

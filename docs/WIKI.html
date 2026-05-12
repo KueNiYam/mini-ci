@@ -545,11 +545,11 @@
           </div>
           <div class="state-card">
             <strong>Run</strong>
-            <span>Project, worktree, run date, status, exit code, and timestamps.</span>
+            <span>Project, worktree, run date, status, exit code, job ID, and timestamps.</span>
           </div>
           <div class="state-card">
             <strong>Log</strong>
-            <span>Full stdout, stderr, and failure details.</span>
+            <span>Streaming stdout, stderr, and failure details.</span>
           </div>
         </div>
         <blockquote>Mini CI가 저장하는 핵심 상태는 project, run, log 세 가지입니다.</blockquote>
@@ -583,19 +583,22 @@ curl -X POST "${MINI_CI_URL}/api/admin/projects" \
 curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
+        <p>The run API returns <code>202 Accepted</code> with <code>jobId</code>. Mini CI executes the command in the background and streams stdout/stderr into the job log.</p>
+        <blockquote>run API는 <code>202 Accepted</code>와 <code>jobId</code>를 반환합니다. Mini CI는 command를 background에서 실행하고 stdout/stderr를 job log에 streaming으로 기록합니다.</blockquote>
 
         <h2>Dashboard</h2>
         <p>The dashboard groups history by project name and worktree ID. Each run appears as a date row.</p>
         <blockquote>대시보드는 실행 이력을 project name과 worktree ID 기준으로 묶고, 각 run을 날짜 행으로 표시합니다.</blockquote>
-        <p>Job details show project, worktree ID, worktree path, run date, status, failed step, exit code, creation time, and logs.</p>
-        <blockquote>job 상세에는 프로젝트, worktree ID, worktree path, run date, 상태, 실패 step, exit code, 생성 시각, 로그가 표시됩니다.</blockquote>
+        <p>Job details show project, worktree ID, worktree path, run date, status, failed step, exit code, creation time, and logs. Status can be <code>queued</code>, <code>running</code>, <code>success</code>, <code>failed</code>, or <code>interrupted</code>.</p>
+        <blockquote>job 상세에는 프로젝트, worktree ID, worktree path, run date, 상태, 실패 step, exit code, 생성 시각, 로그가 표시됩니다. 상태는 <code>queued</code>, <code>running</code>, <code>success</code>, <code>failed</code>, <code>interrupted</code> 중 하나입니다.</blockquote>
 
         <h2>Troubleshooting</h2>
         <ul>
           <li><code>404 project not found</code>: check the project name registered from <code>/admin</code>.</li>
           <li>Command failures are recorded in the job log and keep the job status as <code>failed</code>.</li>
+          <li><code>interrupted</code>: the server restarted while a job was marked as <code>running</code>.</li>
         </ul>
-        <blockquote>문제가 생기면 프로젝트 이름과 job 로그의 실패 command를 먼저 확인합니다.</blockquote>
+        <blockquote>문제가 생기면 프로젝트 이름과 job 로그의 실패 command를 먼저 확인합니다. <code>interrupted</code>는 서버 재시작 중 끊긴 run을 뜻합니다.</blockquote>
       </article>
     </main>
   </body>

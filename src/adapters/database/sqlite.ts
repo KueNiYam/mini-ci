@@ -324,6 +324,33 @@ export function findJobById(home: string, jobId: string): Job | null {
   return rows[0] ? rowToJob(rows[0]) : null;
 }
 
+/** 상태값으로 job 목록을 조회합니다. */
+export function findJobsByStatus(home: string, status: JobStatus): readonly Job[] {
+  const rows = queryRows(
+    home,
+    `
+    SELECT
+      id,
+      project_id,
+      worktree_path,
+      worktree_id,
+      run_date,
+      status,
+      failed_step,
+      exit_code,
+      log_path,
+      created_at,
+      started_at,
+      finished_at
+    FROM jobs
+    WHERE status = ${sqlText(status)}
+    ORDER BY created_at DESC;
+    `,
+  );
+
+  return rows.map(rowToJob);
+}
+
 /** ID로 job과 프로젝트 이름을 함께 조회합니다. */
 export function findJobByIdWithProject(home: string, jobId: string): (Job & Readonly<{ projectName: string }>) | null {
   const rows = queryRows(

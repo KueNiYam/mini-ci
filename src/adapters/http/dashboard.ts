@@ -11,6 +11,7 @@ import {
   getProjects,
   getRecentJobs,
   getRecentJobsForProjectName,
+  recoverStaleRunningJobs,
   rerunJob,
   resolveProjectRoot,
   runProjectByName,
@@ -58,6 +59,8 @@ const PROJECT_MARKER_FILES = [
 
 /** Mini CI 대시보드와 JSON API 서버를 시작합니다. */
 export function startDashboard(options: DashboardOptions): Server {
+  recoverStaleRunningJobs(options.home);
+
   const server = createServer((request, response) => {
     handleRequest(options, request, response).catch((error: unknown) => {
       sendJson(response, 500, {
@@ -173,12 +176,13 @@ async function handleRequest(
     const worktreePath = textValue(body.worktreePath ?? body.path ?? body.projectPath) ?? undefined;
     const runDate = textValue(body.runDate ?? body.date ?? body.ref) ?? undefined;
     try {
-      sendJson(response, 201, runProjectByName(options.home, {
+      const job = runProjectByName(options.home, {
         name: decodeURIComponent(projectRunsMatch[1]),
         projectRoot,
         worktreePath,
         runDate,
-      }));
+      });
+      sendJson(response, 202, { jobId: job.id, job });
     } catch (error) {
       if (error instanceof Error && error.message.includes("프로젝트를 찾을 수 없습니다")) {
         sendJson(response, 404, { error: error.message });
@@ -224,7 +228,8 @@ async function handleRequest(
 
   const rerunMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/rerun$/);
   if (method === "POST" && rerunMatch) {
-    sendJson(response, 201, rerunJob(options.home, rerunMatch[1]));
+    const job = rerunJob(options.home, rerunMatch[1]);
+    sendJson(response, 202, { jobId: job.id, job });
     return;
   }
 
@@ -561,6 +566,10 @@ function sharedPageCss(): string {
       background: #fee2e2;
       color: #b91c1c;
     }
+    .status-interrupted {
+      background: #fef3c7;
+      color: #92400e;
+    }
     .status-queued {
       background: #f1f5f9;
       color: #475569;
@@ -594,7 +603,7 @@ function sharedPageCss(): string {
 /** 서버 렌더링에서 상태 badge HTML을 만듭니다. */
 function statusBadgeHtml(status: string): string {
   const statusText = status || "queued";
-  const knownStatus = ["queued", "running", "success", "failed"].includes(statusText) ? statusText : "queued";
+  const knownStatus = ["queued", "running", "success", "failed", "interrupted"].includes(statusText) ? statusText : "queued";
   return `<span class="status-badge status-${escapeHtmlText(knownStatus)}">${escapeHtmlText(statusText)}</span>`;
 }
 
@@ -826,8 +835,8 @@ function jobDetailHtml(projectRoot: string, job: Job, log: string): string {
           return;
         }
 
-        const job = await response.json();
-        window.location.href = "/jobs/" + encodeURIComponent(job.id);
+        const result = await response.json();
+        window.location.href = "/jobs/" + encodeURIComponent(result.jobId || result.job?.id || result.id);
       });
 
       copyLogEl.addEventListener("click", async () => {
@@ -1062,6 +1071,10 @@ function dashboardHtml(projectRoot: string): string {
       .status-failed {
         background: #fee2e2;
         color: #b91c1c;
+      }
+      .status-interrupted {
+        background: #fef3c7;
+        color: #92400e;
       }
       .status-queued {
         background: #f1f5f9;
@@ -1837,7 +1850,7 @@ function dashboardHtml(projectRoot: string): string {
 
       function statusBadge(status) {
         const statusText = String(status || "queued");
-        const knownStatus = ["queued", "running", "success", "failed"].includes(statusText)
+        const knownStatus = ["queued", "running", "success", "failed", "interrupted"].includes(statusText)
           ? statusText
           : "queued";
         return '<span class="status-badge status-' + escapeAttribute(knownStatus) + '">' +
@@ -2221,6 +2234,25 @@ function adminHtml(projectRoot: string): string {
         background: #eef2f7;
         color: #475569;
       }
+      .stored-command-summary {
+        display: grid;
+        gap: 6px;
+        margin: -6px 0 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #fbfcfe;
+        padding: 10px;
+      }
+      .stored-command-summary strong {
+        color: #475569;
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .stored-command-summary p {
+        color: #647084;
+        font-size: 0.86rem;
+      }
       .client-api {
         margin-top: 14px;
       }
@@ -2329,11 +2361,13 @@ function adminHtml(projectRoot: string): string {
           <p class="hint">Click a candidate or enter a project name. Matching directories are discovered automatically.</p>
           <label>
             <span class="field-label">
-              Commands
+              Commands to save
               <span class="optional">one per line</span>
             </span>
-            <textarea id="project-commands" autocomplete="off" placeholder="npm test"></textarea>
+            <textarea id="project-commands" autocomplete="off" placeholder="Example only: npm test"></textarea>
           </label>
+          <p class="hint">The placeholder is only an example. The commands below show what is actually stored.</p>
+          <div id="stored-command-summary" class="stored-command-summary"></div>
           <p id="form-state" class="form-state">No project selected.</p>
           <button id="save-project" type="button">Save project</button>
           <div class="client-api">
@@ -2353,6 +2387,7 @@ function adminHtml(projectRoot: string): string {
     <script>
       const projectNameEl = document.getElementById("project-name");
       const projectCommandsEl = document.getElementById("project-commands");
+      const storedCommandSummaryEl = document.getElementById("stored-command-summary");
       const formStateEl = document.getElementById("form-state");
       const curlExampleEl = document.getElementById("curl-example");
       const worktreeListEl = document.getElementById("worktree-list");
@@ -2427,7 +2462,7 @@ function adminHtml(projectRoot: string): string {
           'curl -X POST "' + window.location.origin + '/api/admin/projects" \\\\\\n' +
           '  -H "Content-Type: application/json" \\\\\\n' +
           '  -d "{\\\\"name\\\\":\\\\"' + projectNameToken + '\\\\",\\\\"paths\\\\":[\\\\"' + worktreePathToken + '\\\\"],\\\\"commands\\\\":' + commandsToken + '}"\\n\\n' +
-          "# Start a " + name + " run for " + worktreePathToken + "\\n" +
+          "# Start a " + name + " run for " + worktreePathToken + " and receive jobId\\n" +
           'curl -X POST "' + window.location.origin + '/api/projects/' + projectNameToken + '/runs" \\\\\\n' +
           '  -H "Content-Type: application/json" \\\\\\n' +
           '  -d "{\\\\"worktreePath\\\\":\\\\"' + worktreePathToken + '\\\\",\\\\"runDate\\\\":\\\\"' + runDateToken + '\\\\"}"';
@@ -2613,6 +2648,7 @@ function adminHtml(projectRoot: string): string {
       function refreshFormState() {
         const name = projectNameEl.value.trim();
         const savedProject = savedProjectByName(name);
+        renderStoredCommandSummary(savedProject, name);
         formStateEl.className = "form-state";
         if (!name) {
           formStateEl.textContent = "No project selected.";
@@ -2632,6 +2668,43 @@ function adminHtml(projectRoot: string): string {
           ? "Unsaved changes. Save project to update stored directories or commands."
           : "Saved settings loaded.";
         markDirtyCandidate(name, dirty);
+      }
+
+      function renderStoredCommandSummary(savedProject, projectName) {
+        storedCommandSummaryEl.replaceChildren();
+        const title = document.createElement("strong");
+        const body = document.createElement("p");
+        title.textContent = "Stored commands";
+
+        if (!projectName) {
+          body.textContent = "Select a project to see saved commands.";
+          storedCommandSummaryEl.append(title, body);
+          return;
+        }
+
+        if (!savedProject) {
+          body.textContent = "No commands are stored yet. Save the project to persist the commands above.";
+          storedCommandSummaryEl.append(title, body);
+          return;
+        }
+
+        const commands = Array.isArray(savedProject.commands) ? savedProject.commands : [];
+        if (commands.length === 0) {
+          body.textContent = "No stored commands.";
+          storedCommandSummaryEl.append(title, body);
+          return;
+        }
+
+        const list = document.createElement("ul");
+        list.className = "command-list";
+        for (const command of commands) {
+          const item = document.createElement("li");
+          const code = document.createElement("code");
+          code.textContent = command;
+          item.append(code);
+          list.append(item);
+        }
+        storedCommandSummaryEl.append(title, list);
       }
 
       function markDirtyCandidate(projectName, dirty) {
