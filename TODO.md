@@ -38,3 +38,8 @@
 - [x] Dashboard Runs 중심으로 정보 구조와 계층 정리하기
 - [x] Dashboard 컴포넌트 계층과 폰트 재정리하기
 - [x] README/WIKI/UI 예시에서 개인 서버와 프로젝트 값 제거하기
+- [x] Dashboard에서 선택한 job 콘솔 로그 패널 개선하기
+- [x] Dashboard 콘솔 로그 자동 새로고침 깜빡임 막기
+- [x] Dashboard에서 job 상세 페이지로 Selected Run/Console 분리하기
+- [x] Dashboard run row 전체를 선택 가능하게 하기
+- [x] Dashboard Runs 옆에 Selected Run 요약 패널 붙이기

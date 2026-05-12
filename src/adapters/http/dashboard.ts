@@ -15,6 +15,7 @@ import {
   resolveProjectRoot,
   runProjectByName,
 } from "../../app.ts";
+import type { Job } from "../../domains/ci/models.ts";
 
 /** 대시보드 서버 실행에 필요한 로컬 런타임 설정입니다. */
 export type DashboardOptions = Readonly<{
@@ -88,6 +89,20 @@ async function handleRequest(
 
   if (method === "GET" && url.pathname === "/admin") {
     sendHtml(response, adminHtml(projectRoot));
+    return;
+  }
+
+  const jobPageMatch = url.pathname.match(/^\/jobs\/([^/]+)$/);
+  if (method === "GET" && jobPageMatch) {
+    const job = getJob(options.home, jobPageMatch[1]);
+    const log = job ? getJobLog(options.home, job.id) : null;
+
+    if (!job || log === null) {
+      sendHtml(response, notFoundHtml("Job not found"), 404);
+      return;
+    }
+
+    sendHtml(response, jobDetailHtml(projectRoot, job, log));
     return;
   }
 
@@ -233,8 +248,8 @@ function sendText(response: ServerResponse, status: number, body: string): void 
 }
 
 /** HTML 응답을 보냅니다. */
-function sendHtml(response: ServerResponse, body: string): void {
-  response.writeHead(200, {
+function sendHtml(response: ServerResponse, body: string, status = 200): void {
+  response.writeHead(status, {
     "content-type": "text/html; charset=utf-8",
   });
   response.end(body);
@@ -432,6 +447,428 @@ function projectNameFromDirectoryPath(path: string): string {
   return basename(path);
 }
 
+/** 대시보드와 상세 페이지가 공유하는 기본 페이지 스타일입니다. */
+function sharedPageCss(): string {
+  return `
+    @import url("https://cdn.jsdelivr.net/gh/wanteddev/wanted-sans@v1.0.1/packages/wanted-sans/fonts/webfonts/variable/split/WantedSansVariable.min.css");
+
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #f3f5f7;
+      color: #161c26;
+      font-family: "Wanted Sans Variable", "Wanted Sans", Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 36px 24px 52px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+    h1, h2, h3, p {
+      margin-top: 0;
+    }
+    h1 {
+      margin-bottom: 0;
+      font-size: 36px;
+      font-weight: 830;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin-bottom: 14px;
+      font-size: 23px;
+      font-weight: 780;
+      line-height: 1.2;
+    }
+    h3 {
+      font-size: 18px;
+      font-weight: 760;
+      line-height: 1.3;
+    }
+    section {
+      margin-bottom: 24px;
+      border: 1px solid #d9dee8;
+      border-radius: 8px;
+      background: white;
+      padding: 22px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    button,
+    a.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      border: 0;
+      border-radius: 6px;
+      background: #0f766e;
+      color: white;
+      padding: 0 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button.secondary,
+    a.button.secondary {
+      border: 1px solid #cbd5e1;
+      background: white;
+      color: #1d2430;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .app-kicker {
+      margin: 0 0 4px;
+      color: #0f766e;
+      font-size: 13px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .status-success {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status-running {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .status-failed {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .status-queued {
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .demo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      border-radius: 999px;
+      background: #fff7ed;
+      color: #9a3412;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.2;
+      vertical-align: middle;
+    }
+    @media (max-width: 760px) {
+      main {
+        padding: 24px 14px 40px;
+      }
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  `;
+}
+
+/** 서버 렌더링에서 상태 badge HTML을 만듭니다. */
+function statusBadgeHtml(status: string): string {
+  const statusText = status || "queued";
+  const knownStatus = ["queued", "running", "success", "failed"].includes(statusText) ? statusText : "queued";
+  return `<span class="status-badge status-${escapeHtmlText(knownStatus)}">${escapeHtmlText(statusText)}</span>`;
+}
+
+/** demo job이면 서버 렌더링용 demo badge를 반환합니다. */
+function demoBadgeHtml(job: Job): string {
+  return job.runDate.startsWith("demo-") ? '<span class="demo-badge">demo</span>' : "";
+}
+
+/** 서버 렌더링에서 날짜를 월일 시분 형태로 줄입니다. */
+function formatCompactDateForUser(value: string): string {
+  const text = String(value || "").replace(/^demo-/, "");
+  const isoDate = /^\d{4}-/.test(text) ? new Date(text) : null;
+  if (isoDate && !Number.isNaN(isoDate.getTime())) {
+    return formatDatePartsForUser(isoDate.getMonth() + 1, isoDate.getDate(), isoDate.getHours(), isoDate.getMinutes());
+  }
+
+  const compact = text.match(/^(\d{4})-?(\d{2})-?(\d{2})T?(\d{2}):?(\d{2})/);
+  if (compact) {
+    return `${compact[2]}-${compact[3]} ${compact[4]}:${compact[5]}`;
+  }
+
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) {
+    return formatDatePartsForUser(date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes());
+  }
+
+  return text;
+}
+
+/** 날짜 구성요소를 월일 시분 문자열로 만듭니다. */
+function formatDatePartsForUser(month: number, day: number, hour: number, minute: number): string {
+  return `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** project root 아래 경로를 사용자에게 짧게 표시합니다. */
+function displayProjectPathForUser(projectRoot: string, path: string): string {
+  const projectRootLabel = displayPathForUser(projectRoot);
+  if (path === projectRoot) {
+    return projectRootLabel;
+  }
+
+  if (path.startsWith(`${projectRoot}/`)) {
+    return `${projectRootLabel}/${path.slice(projectRoot.length + 1)}`;
+  }
+
+  return displayPathForUser(path);
+}
+
+/** 찾을 수 없는 HTML 문서를 반환합니다. */
+function notFoundHtml(message: string): string {
+  return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini CI - Not found</title>
+    <style>${sharedPageCss()}</style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="app-kicker">Mini CI</p>
+          <h1>${escapeHtmlText(message)}</h1>
+        </div>
+        <a class="button" href="/">Dashboard</a>
+      </header>
+    </main>
+  </body>
+</html>`;
+}
+
+/** 단일 job 상세 HTML 문서를 반환합니다. */
+function jobDetailHtml(projectRoot: string, job: Job, log: string): string {
+  const logUrl = `/api/jobs/${encodeURIComponent(job.id)}/logs`;
+  const jobUrl = `/jobs/${encodeURIComponent(job.id)}`;
+  const rows = [
+    ["Project", escapeHtmlText(job.projectName ?? job.projectId)],
+    ["Status", statusBadgeHtml(job.status)],
+    ["Worktree ID", escapeHtmlText(job.worktreeId)],
+    ["Worktree path", escapeHtmlText(displayProjectPathForUser(projectRoot, job.worktreePath))],
+    ["Run date", `${escapeHtmlText(formatCompactDateForUser(job.runDate))}${demoBadgeHtml(job)}`],
+    ["Failed step", escapeHtmlText(job.failedStep ?? "-")],
+    ["Exit code", escapeHtmlText(String(job.exitCode ?? "-"))],
+    ["Created", escapeHtmlText(formatCompactDateForUser(job.createdAt))],
+  ];
+
+  return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini CI - ${escapeHtmlText(job.projectName ?? "Job")}</title>
+    <style>
+      ${sharedPageCss()}
+      .detail-layout {
+        display: grid;
+        gap: 20px;
+      }
+      .detail-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .detail-summary {
+        display: grid;
+        grid-template-columns: 140px minmax(0, 1fr);
+        gap: 10px 16px;
+        margin: 0;
+      }
+      .detail-summary dt {
+        color: #647084;
+        font-weight: 800;
+      }
+      .detail-summary dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .console-panel {
+        overflow: hidden;
+        border-color: #111827;
+        background: #0b1020;
+        color: #e5edf6;
+        padding: 0;
+      }
+      .console-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid #1f2937;
+        background: #111827;
+        padding: 18px 20px;
+      }
+      .console-header h2 {
+        margin-bottom: 4px;
+        color: #f8fafc;
+      }
+      .console-context {
+        margin: 0;
+        color: #9ca3af;
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+      .console-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .console-action {
+        min-height: 32px;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        background: #1f2937;
+        color: #e5edf6;
+        padding: 0 10px;
+        font-size: 14px;
+      }
+      .console-output {
+        overflow-x: auto;
+        margin: 0;
+        border-radius: 0;
+        background: #0b1020;
+        color: #d8dee9;
+        padding: 20px;
+        font-family: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+        font-size: 13px;
+        line-height: 1.65;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      @media (max-width: 760px) {
+        .console-header {
+          flex-direction: column;
+        }
+        .detail-summary {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="app-kicker">Mini CI</p>
+          <h1>Run Detail</h1>
+        </div>
+        <div class="detail-actions">
+          <a class="button secondary" href="/">Dashboard</a>
+          <button id="rerun" type="button">Rerun</button>
+        </div>
+      </header>
+      <div class="detail-layout">
+        <section>
+          <h2>Selected Run</h2>
+          <dl class="detail-summary">
+            ${rows.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("")}
+          </dl>
+        </section>
+        <section class="console-panel">
+          <div class="console-header">
+            <div>
+              <p class="app-kicker">Console</p>
+              <h2>Console Log</h2>
+              <p class="console-context">${escapeHtmlText(job.projectName ?? job.projectId)} / ${escapeHtmlText(job.worktreeId)} / ${escapeHtmlText(formatCompactDateForUser(job.runDate))}</p>
+            </div>
+            <div class="console-actions">
+              <a class="console-action" href="${logUrl}" target="_blank" rel="noreferrer">Raw log</a>
+              <button id="copy-log" class="console-action" type="button">Copy</button>
+            </div>
+          </div>
+          <pre id="logs" class="console-output">${escapeHtmlText(log)}</pre>
+        </section>
+      </div>
+    </main>
+    <script>
+      const jobId = ${JSON.stringify(job.id)};
+      const rerunEl = document.getElementById("rerun");
+      const copyLogEl = document.getElementById("copy-log");
+      const logsEl = document.getElementById("logs");
+
+      rerunEl.addEventListener("click", async () => {
+        rerunEl.disabled = true;
+        const response = await fetch("/api/jobs/" + encodeURIComponent(jobId) + "/rerun", { method: "POST" });
+        if (!response.ok) {
+          alert(await response.text());
+          rerunEl.disabled = false;
+          return;
+        }
+
+        const job = await response.json();
+        window.location.href = "/jobs/" + encodeURIComponent(job.id);
+      });
+
+      copyLogEl.addEventListener("click", async () => {
+        const previousLabel = copyLogEl.textContent;
+        try {
+          await copyText(logsEl.textContent || "");
+          copyLogEl.textContent = "Copied";
+        } catch {
+          alert("Copy failed. Select the console text and copy it manually.");
+        } finally {
+          setTimeout(() => {
+            copyLogEl.textContent = previousLabel;
+          }, 1200);
+        }
+      });
+
+      async function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.append(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+
+        if (!copied) {
+          throw new Error("copy failed");
+        }
+      }
+    </script>
+  </body>
+</html>`;
+}
+
 /** 대시보드 단일 HTML 문서를 반환합니다. */
 function dashboardHtml(projectRoot: string): string {
   const projectRootLabel = displayPathForUser(projectRoot);
@@ -567,11 +1004,41 @@ function dashboardHtml(projectRoot: string): string {
         margin: 6px 0 0;
         color: #647084;
       }
-      .details-grid {
+      .runs-layout {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+        gap: 22px;
         align-items: start;
+      }
+      .history-list {
+        min-width: 0;
+      }
+      .selected-run-panel {
+        position: sticky;
+        top: 20px;
+        margin-bottom: 0;
+        border: 1px solid #cfe1df;
+        border-radius: 8px;
+        background: #f8fcfb;
+        padding: 18px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+      }
+      .selected-run-panel h2 {
+        margin-bottom: 12px;
+        font-size: 20px;
+      }
+      .selected-run-panel dl {
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 8px 12px;
+        font-size: 14px;
+      }
+      .selected-run-panel dt {
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .selected-run-panel .status-badge {
+        padding: 3px 8px;
+        font-size: 13px;
       }
       .status,
       .status-badge {
@@ -630,8 +1097,7 @@ function dashboardHtml(projectRoot: string): string {
         justify-content: flex-end;
         min-width: 260px;
       }
-      .project-list button,
-      .history-button {
+      .project-list button {
         border: 1px solid #d9dee8;
         background: #fbfcfe;
         color: #1d2430;
@@ -641,15 +1107,11 @@ function dashboardHtml(projectRoot: string): string {
         background: #e6f4f1;
         color: #0b5f59;
       }
-      .history-button {
-        min-height: 0;
-        border: 0;
-        border-radius: 4px;
-        background: transparent;
-        color: #0b5f59;
-        padding: 0;
-        font: inherit;
-        font-weight: 800;
+      .selected-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
       }
       .run-form input {
         flex: 1 1 190px;
@@ -736,10 +1198,15 @@ function dashboardHtml(projectRoot: string): string {
         gap: 8px;
         margin-top: 16px;
       }
-      button.secondary {
+      button.secondary,
+      a.button.secondary {
         border: 1px solid #cbd5e1;
         background: white;
         color: #1d2430;
+      }
+      a.button[aria-disabled="true"] {
+        pointer-events: none;
+        opacity: 0.55;
       }
       button:disabled {
         cursor: not-allowed;
@@ -795,19 +1262,47 @@ function dashboardHtml(projectRoot: string): string {
         font-weight: 820;
       }
       .run-rows {
+        display: grid;
+        gap: 8px;
         margin-left: 110px;
         font-size: 15px;
         font-variant-numeric: tabular-nums;
       }
       .run-row {
-        min-height: 44px;
-        border-top: 1px solid #eef2f7;
+        width: 100%;
+        min-height: 48px;
+        border: 1px solid #eef2f7;
+        border-radius: 8px;
+        background: #fbfcfe;
+        color: #161c26;
+        cursor: pointer;
+        font: inherit;
+        justify-content: stretch;
+        padding: 0 12px;
+        text-align: left;
+      }
+      .run-row:hover {
+        border-color: #b7d8d3;
+        background: #f7fcfb;
+      }
+      .run-row:focus-visible {
+        outline: 3px solid rgba(15, 118, 110, 0.25);
+        outline-offset: 2px;
       }
       .run-row:first-child {
-        border-top: 0;
+        border-top: 1px solid #eef2f7;
       }
       .run-row.is-demo {
         background: #fffdf6;
+      }
+      .run-row.is-selected {
+        border-color: #0f766e;
+        background: #e6f4f1;
+        box-shadow: inset 4px 0 0 #0f766e, 0 0 0 2px rgba(15, 118, 110, 0.12);
+      }
+      .run-date {
+        color: #0b5f59;
+        font-weight: 800;
       }
       .worktree-path {
         display: inline-block;
@@ -831,8 +1326,12 @@ function dashboardHtml(projectRoot: string): string {
           justify-content: flex-start;
           min-width: 0;
         }
-        .details-grid {
+        .runs-layout {
           grid-template-columns: 1fr;
+        }
+        .selected-run-panel {
+          position: static;
+          order: -1;
         }
         .pending-grid {
           grid-template-columns: 1fr;
@@ -873,23 +1372,26 @@ function dashboardHtml(projectRoot: string): string {
           </div>
           <div id="projects" class="project-list"></div>
         </div>
-        <div id="history"></div>
-      </section>
-      <div class="details-grid">
-        <section>
+        <div class="runs-layout">
+          <div id="history" class="history-list"></div>
+          <aside class="selected-run-panel" aria-live="polite">
           <h2>Selected Run</h2>
           <dl id="job"></dl>
-          <p><button id="rerun" type="button">Rerun</button></p>
-        </section>
-        <section>
-          <h2>Manual Run</h2>
-          <form id="run-form" class="run-form">
-            <input id="run-worktree-path" name="worktreePath" placeholder="worktree path, e.g. wt-001/app" />
-            <input id="run-date" name="runDate" placeholder="run date, e.g. 05-11 14:30 or 20260511143000" />
-            <button type="submit">Run selected project</button>
-          </form>
-        </section>
-      </div>
+          <div class="selected-actions">
+            <a id="job-detail" class="button secondary" aria-disabled="true">Open run detail</a>
+            <button id="rerun" type="button">Rerun</button>
+          </div>
+          </aside>
+        </div>
+      </section>
+      <section>
+        <h2>Manual Run</h2>
+        <form id="run-form" class="run-form">
+          <input id="run-worktree-path" name="worktreePath" placeholder="worktree path, e.g. wt-001/app" />
+          <input id="run-date" name="runDate" placeholder="run date, e.g. 05-11 14:30 or 20260511143000" />
+          <button type="submit">Run selected project</button>
+        </form>
+      </section>
       <section id="pending-action" class="pending-action" hidden>
         <h2 id="pending-title">Confirm run</h2>
         <p id="pending-summary"></p>
@@ -910,14 +1412,10 @@ function dashboardHtml(projectRoot: string): string {
           <button id="cancel-run" class="secondary" type="button">Cancel</button>
         </div>
       </section>
-      <section>
-        <h2>Logs</h2>
-        <pre id="logs">loading...</pre>
-      </section>
     </main>
     <script>
       const jobEl = document.getElementById("job");
-      const logEl = document.getElementById("logs");
+      const jobDetailEl = document.getElementById("job-detail");
       const rerunEl = document.getElementById("rerun");
       const historyEl = document.getElementById("history");
       const projectsEl = document.getElementById("projects");
@@ -954,7 +1452,8 @@ function dashboardHtml(projectRoot: string): string {
           currentJob = null;
           selectedJobId = null;
           jobEl.innerHTML = "<dt>상태</dt><dd>아직 job이 없습니다.</dd>";
-          logEl.textContent = "";
+          jobDetailEl.removeAttribute("href");
+          jobDetailEl.setAttribute("aria-disabled", "true");
           rerunEl.disabled = true;
           return;
         }
@@ -981,7 +1480,7 @@ function dashboardHtml(projectRoot: string): string {
         currentJob = job;
         selectedJobId = job.id;
         renderJob(job);
-        logEl.textContent = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/logs").then((response) => response.text());
+        markSelectedHistoryJob(job.id);
       }
 
       async function loadHistory() {
@@ -1017,13 +1516,16 @@ function dashboardHtml(projectRoot: string): string {
           "</div>" +
           "<div class='run-rows'>" +
           worktreeGroup.jobs.map((job) => {
-            return "<div class='run-row " + (isDemoJob(job) ? "is-demo" : "") + "'>" +
-              "<div><button class='history-button' type='button' data-job-id='" + escapeAttribute(job.id) + "'>" +
-              escapeHtml(formatCompactDate(job.runDate)) + demoBadge(job) +
-              "</button></div>" +
+            const rowClass = ["run-row"]
+              .concat(isDemoJob(job) ? ["is-demo"] : [])
+              .concat(job.id === selectedJobId ? ["is-selected"] : [])
+              .join(" ");
+            const currentAttribute = job.id === selectedJobId ? " aria-current='true'" : "";
+            return "<button class='" + rowClass + "' type='button' title='Select run' data-job-id='" + escapeAttribute(job.id) + "'" + currentAttribute + ">" +
+              "<span class='run-date'>" + escapeHtml(formatCompactDate(job.runDate)) + demoBadge(job) + "</span>" +
               "<div>" + statusBadge(job.status) + "</div>" +
               "<div>" + escapeHtml(job.exitCode ?? "-") + "</div>" +
-              "</div>";
+              "</button>";
           }).join("") +
           "</div></div>";
       }
@@ -1074,6 +1576,8 @@ function dashboardHtml(projectRoot: string): string {
 
       function renderJob(job) {
         rerunEl.disabled = false;
+        jobDetailEl.href = "/jobs/" + encodeURIComponent(job.id);
+        jobDetailEl.removeAttribute("aria-disabled");
         jobEl.innerHTML = [
           ["프로젝트", escapeHtml(job.projectName || job.projectId)],
           ["상태", statusBadge(job.status)],
@@ -1290,6 +1794,19 @@ function dashboardHtml(projectRoot: string): string {
 
       function projectConfigByName(name) {
         return projectConfigs.find((project) => project.name === name) || null;
+      }
+
+      function markSelectedHistoryJob(jobId) {
+        for (const button of historyEl.querySelectorAll("button[data-job-id]")) {
+          const selected = Boolean(jobId) && button.dataset.jobId === jobId;
+          button.classList.toggle("is-selected", selected);
+
+          if (selected) {
+            button.setAttribute("aria-current", "true");
+          } else {
+            button.removeAttribute("aria-current");
+          }
+        }
       }
 
       function escapeHtml(value) {
