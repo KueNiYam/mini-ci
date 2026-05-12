@@ -559,7 +559,8 @@
         <blockquote>CI 머신에서 서버를 시작합니다. LAN 주소로 열면 접근 가능한 사용자는 누구나 프로젝트 등록과 run 실행을 할 수 있습니다.</blockquote>
         <p>Project paths are discovered by project name under <code>~/.codex/worktrees</code> by default. Set <code>MINI_CI_PROJECT_ROOT</code> when another base directory is needed.</p>
         <blockquote>프로젝트 경로는 기본적으로 <code>~/.codex/worktrees</code> 아래에서 프로젝트명으로 자동 탐지합니다. 다른 기준 디렉터리가 필요하면 <code>MINI_CI_PROJECT_ROOT</code>를 설정합니다.</blockquote>
-        <pre><code>bin/mini-ci start --host 0.0.0.0 --port 4177</code></pre>
+        <pre><code>MINI_CI_PORT="&lt;port&gt;"
+bin/mini-ci start --host 0.0.0.0 --port "${MINI_CI_PORT}"</code></pre>
 
         <h2>Register A Project</h2>
         <p>Open <code>/admin</code>, choose a project, and save it once. The client deployment process should refresh the project and start a run after it prepares the worktree directories.</p>
@@ -568,17 +569,18 @@
         <blockquote>배포가 끝난 뒤 클라이언트 프로세스에서 아래 호출을 사용합니다.</blockquote>
         <p><code>WORKTREE_PATH</code> selects the worktree to run. <code>RUN_DATE</code> becomes the date row on the dashboard.</p>
         <blockquote><code>WORKTREE_PATH</code>는 실행할 worktree를 선택합니다. <code>RUN_DATE</code>는 대시보드의 날짜 행으로 표시됩니다.</blockquote>
-<pre><code>PROJECT_NAME="storyboard"
-WORKTREE_ID="1cf2"
+<pre><code>MINI_CI_URL="http://&lt;mini-ci-host&gt;:&lt;port&gt;"
+PROJECT_NAME="&lt;project-name&gt;"
+WORKTREE_ID="&lt;worktree-id&gt;"
 WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
 RUN_DATE="$(date +%Y%m%d%H%M%S)"
 COMMANDS='["npm test"]'
 
-curl -X POST http://kueni-16.local:4177/api/admin/projects \
+curl -X POST "${MINI_CI_URL}/api/admin/projects" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"${PROJECT_NAME}\",\"paths\":[\"${WORKTREE_PATH}\"],\"commands\":${COMMANDS}}"
 
-curl -X POST "http://kueni-16.local:4177/api/projects/${PROJECT_NAME}/runs" \
+curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"</code></pre>
 

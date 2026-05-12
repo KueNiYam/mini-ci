@@ -884,7 +884,7 @@ function dashboardHtml(projectRoot: string): string {
         <section>
           <h2>Manual Run</h2>
           <form id="run-form" class="run-form">
-            <input id="run-worktree-path" name="worktreePath" placeholder="worktree path, e.g. 1cf2/storyboard" />
+            <input id="run-worktree-path" name="worktreePath" placeholder="worktree path, e.g. wt-001/app" />
             <input id="run-date" name="runDate" placeholder="run date, e.g. 05-11 14:30 or 20260511143000" />
             <button type="submit">Run selected project</button>
           </form>
@@ -1807,7 +1807,7 @@ function adminHtml(projectRoot: string): string {
           </div>
           <label>
             Project name
-            <input id="project-name" autocomplete="off" placeholder="storyboard" />
+            <input id="project-name" autocomplete="off" placeholder="app" />
           </label>
           <p class="hint">Click a candidate or enter a project name. Matching directories are discovered automatically.</p>
           <label>
@@ -1902,7 +1902,7 @@ function adminHtml(projectRoot: string): string {
         const commandsToken = "$" + "{COMMANDS}";
         const runDateToken = "$" + "{RUN_DATE}";
         curlExampleEl.textContent = 'PROJECT_NAME="' + shellDoubleQuoteValue(name) + '"\\n' +
-          'WORKTREE_ID="1cf2"\\n' +
+          'WORKTREE_ID="<worktree-id>"\\n' +
           'WORKTREE_PATH="' + worktreeIdToken + "/" + projectNameToken + '"\\n' +
           'RUN_DATE="$(date +%Y%m%d%H%M%S)"\\n' +
           "COMMANDS=" + shellSingleQuoteValue(commandsJson) + "\\n\\n" +

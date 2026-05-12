@@ -38,7 +38,7 @@ async function routeCommand(argv: readonly string[]): Promise<void> {
     console.log(`  ${basenameOnly(result.dbPath)}`);
     console.log(`  logs/`);
     console.log("");
-    console.log("Dashboard: http://localhost:4177");
+    console.log("Dashboard: start the server with mini-ci start, then open the configured host and port.");
     return;
   }
 

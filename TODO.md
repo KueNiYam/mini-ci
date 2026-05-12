@@ -37,3 +37,4 @@
 - [x] Dashboard History 더미 표시, 상태 다양화, 폰트 개선하기
 - [x] Dashboard Runs 중심으로 정보 구조와 계층 정리하기
 - [x] Dashboard 컴포넌트 계층과 폰트 재정리하기
+- [x] README/WIKI/UI 예시에서 개인 서버와 프로젝트 값 제거하기

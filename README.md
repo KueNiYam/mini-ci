@@ -37,7 +37,8 @@ Start Mini CI.
 > Mini CI를 시작합니다.
 
 ```bash
-bin/mini-ci start --host 0.0.0.0 --port 4177
+MINI_CI_PORT="<port>"
+bin/mini-ci start --host 0.0.0.0 --port "${MINI_CI_PORT}"
 ```
 
 Register the project once from `/admin`, then let the client deployment process refresh and run it through HTTP.
@@ -53,20 +54,31 @@ Project paths are discovered by project name under `~/.codex/worktrees` by defau
 > `WORKTREE_PATH`는 실행할 worktree를 선택합니다. `RUN_DATE`는 대시보드의 날짜 행으로 표시됩니다.
 
 ```bash
-PROJECT_NAME="storyboard"
-WORKTREE_ID="1cf2"
+MINI_CI_URL="http://<mini-ci-host>:<port>"
+PROJECT_NAME="<project-name>"
+WORKTREE_ID="<worktree-id>"
 WORKTREE_PATH="${WORKTREE_ID}/${PROJECT_NAME}"
 RUN_DATE="$(date +%Y%m%d%H%M%S)"
 COMMANDS='["npm test"]'
 
-curl -X POST http://kueni-16.local:4177/api/admin/projects \
+curl -X POST "${MINI_CI_URL}/api/admin/projects" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"${PROJECT_NAME}\",\"paths\":[\"${WORKTREE_PATH}\"],\"commands\":${COMMANDS}}"
 
-curl -X POST "http://kueni-16.local:4177/api/projects/${PROJECT_NAME}/runs" \
+curl -X POST "${MINI_CI_URL}/api/projects/${PROJECT_NAME}/runs" \
   -H "Content-Type: application/json" \
   -d "{\"worktreePath\":\"${WORKTREE_PATH}\",\"runDate\":\"${RUN_DATE}\"}"
 ```
+
+## Integrating Another Project
+
+Give the target Git URL and README to the deployment process, then prepare the source under `~/.codex/worktrees/<WORKTREE_ID>/<PROJECT_NAME>`, register it in `/admin`, and trigger `POST /api/projects/:name/runs`.
+
+> 대상 Git URL과 README를 배포 프로세스에 제공한 뒤, 소스를 `~/.codex/worktrees/<WORKTREE_ID>/<PROJECT_NAME>` 아래에 준비하고 `/admin`에서 등록한 다음 `POST /api/projects/:name/runs`로 실행합니다.
+
+Mini CI does not clone Git URLs by itself yet. The target README should make the project name and test commands clear.
+
+> Mini CI가 아직 Git URL을 직접 clone하지는 않습니다. 대상 README에는 프로젝트명과 테스트 command가 명확해야 합니다.
 
 ## API
 
