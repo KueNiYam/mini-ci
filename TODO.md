@@ -29,7 +29,7 @@
 - [x] 클라이언트 API 예시에 실행 대상 worktree 명시하기
 - [x] 실행 이력을 worktree와 날짜 기준으로 분리하기
 - [ ] DB schema 초기화 정책과 미사용 DB 코드 정리하기
-- [ ] 대시보드에서 과거 job 선택이 자동 새로고침으로 덮이지 않게 하기
+- [x] 대시보드에서 과거 job 선택이 자동 새로고침으로 덮이지 않게 하기
 - [ ] Run/Rerun 전에 실행 대상 경로와 command를 확인할 수 있게 하기
 - [ ] Dashboard/Admin 빈 상태와 저장 결과 안내 개선하기
 - [x] Dashboard History 우선 배치와 날짜/가독성 개선하기

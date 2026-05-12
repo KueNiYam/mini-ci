@@ -12,6 +12,7 @@ import {
 import {
   ensureMiniCiHome,
   findJobById,
+  findJobByIdWithProject,
   findLatestJob,
   findLatestJobForProject,
   findProjectById,
@@ -246,9 +247,9 @@ export function getRecentJobsForProjectName(
 }
 
 /** job 상세 정보를 조회합니다. */
-export function getJob(home: string, jobId: string): Job | null {
+export function getJob(home: string, jobId: string): ReturnType<typeof findJobByIdWithProject> {
   initializeDatabase(home);
-  return findJobById(home, jobId);
+  return findJobByIdWithProject(home, jobId);
 }
 
 /** job 로그 파일 내용을 읽습니다. */

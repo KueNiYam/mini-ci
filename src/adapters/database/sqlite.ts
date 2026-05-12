@@ -324,6 +324,20 @@ export function findJobById(home: string, jobId: string): Job | null {
   return rows[0] ? rowToJob(rows[0]) : null;
 }
 
+/** ID로 job과 프로젝트 이름을 함께 조회합니다. */
+export function findJobByIdWithProject(home: string, jobId: string): (Job & Readonly<{ projectName: string }>) | null {
+  const rows = queryRows(
+    home,
+    `
+    ${baseJobSelectSql()}
+    WHERE jobs.id = ${sqlText(jobId)}
+    LIMIT 1;
+    `,
+  );
+
+  return rows[0] ? rowToJobWithProject(rows[0]) : null;
+}
+
 /** SQL 문을 실행하고 결과를 반환하지 않습니다. */
 function execSql(home: string, sql: string): void {
   const dbPath = resolvePaths(home).dbPath;

@@ -813,23 +813,50 @@ function dashboardHtml(projectRoot: string): string {
       const projectRootPath = ${JSON.stringify(projectRoot)};
       const projectRootLabel = ${JSON.stringify(projectRootLabel)};
       let currentJob = null;
+      let selectedJobId = null;
       let selectedProjectName = "all";
 
-      async function load() {
+      async function load(options = {}) {
         await loadProjects();
-        const latest = await fetch(latestUrl()).then((response) => response.json());
-        currentJob = latest;
-        if (!latest) {
+        await loadHistory();
+
+        const selectedJob = options.keepSelectedJob && selectedJobId
+          ? await loadJobById(selectedJobId)
+          : null;
+        const job = selectedJob || await loadLatestJob();
+
+        if (!job) {
+          currentJob = null;
+          selectedJobId = null;
           jobEl.innerHTML = "<dt>상태</dt><dd>아직 job이 없습니다.</dd>";
           logEl.textContent = "";
           rerunEl.disabled = true;
-          await loadHistory();
           return;
         }
 
-        renderJob(latest);
-        logEl.textContent = await fetch("/api/jobs/" + latest.id + "/logs").then((response) => response.text());
-        await loadHistory();
+        await selectJob(job);
+      }
+
+      async function loadLatestJob() {
+        const latest = await fetch(latestUrl()).then((response) => response.json());
+        return latest && latest.id ? latest : null;
+      }
+
+      async function loadJobById(jobId) {
+        const response = await fetch("/api/jobs/" + encodeURIComponent(jobId));
+        if (!response.ok) {
+          return null;
+        }
+
+        const job = await response.json();
+        return job && job.id ? job : null;
+      }
+
+      async function selectJob(job) {
+        currentJob = job;
+        selectedJobId = job.id;
+        renderJob(job);
+        logEl.textContent = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/logs").then((response) => response.text());
       }
 
       async function loadHistory() {
@@ -940,6 +967,7 @@ function dashboardHtml(projectRoot: string): string {
         button.setAttribute("aria-pressed", String(selectedProjectName === name));
         button.addEventListener("click", async () => {
           selectedProjectName = name;
+          selectedJobId = null;
           await load();
         });
         return button;
@@ -965,10 +993,10 @@ function dashboardHtml(projectRoot: string): string {
         const button = event.target.closest("button[data-job-id]");
         if (!button) return;
 
-        const job = await fetch("/api/jobs/" + encodeURIComponent(button.dataset.jobId)).then((response) => response.json());
-        currentJob = job;
-        renderJob(job);
-        logEl.textContent = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/logs").then((response) => response.text());
+        const job = await loadJobById(button.dataset.jobId);
+        if (job) {
+          await selectJob(job);
+        }
       });
 
       rerunEl.addEventListener("click", async () => {
@@ -980,6 +1008,7 @@ function dashboardHtml(projectRoot: string): string {
           alert(await response.text());
           return;
         }
+        selectedJobId = null;
         await load();
       });
 
@@ -1007,6 +1036,7 @@ function dashboardHtml(projectRoot: string): string {
 
         runWorktreePathEl.value = "";
         runDateEl.value = "";
+        selectedJobId = null;
         await load();
       });
 
@@ -1088,7 +1118,7 @@ function dashboardHtml(projectRoot: string): string {
       }
 
       load();
-      setInterval(load, 3000);
+      setInterval(() => load({ keepSelectedJob: true }), 3000);
     </script>
   </body>
 </html>`;

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addProject,
+  getJob,
   getProjects,
   getRecentJobsForProjectName,
   runProjectByName,
@@ -134,6 +135,7 @@ test("여러 프로젝트의 job을 프로젝트별로 조회한다", async () =
     getRecentJobsForProjectName(home, projectA.name).map((job) => `${job.worktreeId}:${job.runDate}`),
     ["worktree-a:20260511000100"],
   );
+  assert.equal(getJob(home, "job-a")?.projectName, "app-a");
   assert.deepEqual(
     getRecentJobsForProjectName(home, projectB.name).map((job) => `${job.worktreeId}:${job.runDate}`),
     ["worktree-b:20260511000200"],
